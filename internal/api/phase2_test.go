@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // serverHandle gives the Phase 2 tests a fluent wrapper over the shared test
@@ -12,6 +13,19 @@ type serverHandle struct{ ts *httptest.Server }
 
 func newHandle(t *testing.T) *serverHandle {
 	ts, _ := testServer(t)
+	return &serverHandle{ts}
+}
+
+// fixedClock is the deterministic clock used across the API tests.
+func fixedClock() func() time.Time {
+	return func() time.Time { return time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC) }
+}
+
+// newHandleFrom wraps an already-constructed Server (e.g. with a processor set).
+func newHandleFrom(t *testing.T, srv *Server) *serverHandle {
+	t.Helper()
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
 	return &serverHandle{ts}
 }
 

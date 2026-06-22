@@ -21,6 +21,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/ingest"
 	"github.com/Arjun0606/smolbill/internal/invoice"
+	"github.com/Arjun0606/smolbill/internal/payments/stripe"
 	"github.com/Arjun0606/smolbill/internal/store"
 	"github.com/Arjun0606/smolbill/internal/store/memory"
 	"github.com/Arjun0606/smolbill/internal/store/postgres"
@@ -82,6 +83,16 @@ func runServe() error {
 	}
 
 	srv := api.New(st, ingest.New(st, 0), nil)
+
+	// Optional payment rail. With STRIPE_SECRET_KEY set, finalize pushes invoices
+	// to Stripe; otherwise finalize is local-only (still writes the ledger).
+	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
+		srv.SetProcessor(stripe.New(key))
+		log.Printf("smolbill: Stripe payment rail enabled")
+	} else {
+		log.Printf("smolbill: STRIPE_SECRET_KEY unset — finalize is local-only (no processor push)")
+	}
+
 	log.Printf("smolbill: listening on %s (dedup window %s)", addr, ingest.DefaultDedupWindow)
 	return http.ListenAndServe(addr, srv.Handler())
 }

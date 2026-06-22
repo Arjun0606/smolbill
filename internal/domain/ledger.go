@@ -24,6 +24,20 @@ type LedgerRow struct {
 	ComputedAt        time.Time
 }
 
+// Alert is a proactive spend-alert config: fire WebhookURL when a customer's
+// projected current-period spend crosses each percentage in Thresholds of
+// Budget. MaxFired is the high-water mark already notified, so each threshold
+// fires at most once per period (no alert spam).
+type Alert struct {
+	ID         string
+	CustomerID string
+	Budget     decimal.Decimal
+	Currency   string
+	Thresholds []int
+	WebhookURL string
+	MaxFired   int
+}
+
 // EntitlementKind is whether an entitlement is an on/off feature flag or a
 // metered allowance with a numeric limit.
 type EntitlementKind string

@@ -127,6 +127,15 @@ func (a Amount) String() string {
 	return a.val.StringFixed(MinorUnitExponent(a.currency)) + " " + a.currency
 }
 
+// MinorUnits returns the amount as an integer count of the currency's smallest
+// unit (e.g. cents) — the form payment processors like Stripe require. The
+// amount should already be RoundDown'd to the minor unit; any residual fraction
+// is truncated toward zero, preserving the under-bill bias. Exact, no float.
+func (a Amount) MinorUnits() int64 {
+	exp := MinorUnitExponent(a.currency)
+	return a.val.Shift(exp).Truncate(0).IntPart()
+}
+
 // Sum adds a slice of amounts; all must share one currency. Returns a zero
 // amount in that currency for an empty slice is not possible (unknown currency),
 // so callers pass the currency explicitly.

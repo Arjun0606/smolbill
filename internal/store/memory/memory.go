@@ -24,6 +24,7 @@ type Store struct {
 	invoices     map[string]domain.Invoice       // keyed by id
 	ledger       map[string][]domain.LedgerRow   // invoice_id -> rows
 	entitlements map[string][]domain.Entitlement // customer_id -> entitlements
+	alerts       map[string]domain.Alert         // keyed by id
 }
 
 // New returns an empty store.
@@ -37,6 +38,7 @@ func New() *Store {
 		invoices:     map[string]domain.Invoice{},
 		ledger:       map[string][]domain.LedgerRow{},
 		entitlements: map[string][]domain.Entitlement{},
+		alerts:       map[string]domain.Alert{},
 	}
 }
 
@@ -183,4 +185,40 @@ func (s *Store) EntitlementsForCustomer(customerID string) ([]domain.Entitlement
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]domain.Entitlement(nil), s.entitlements[customerID]...), nil
+}
+
+// --- alerts ---
+
+func (s *Store) PutAlert(a domain.Alert) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a.ID == "" {
+		a.ID = id.New("alert")
+	}
+	s.alerts[a.ID] = a
+	return nil
+}
+
+func (s *Store) AlertsForCustomer(customerID string) ([]domain.Alert, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Alert
+	for _, a := range s.alerts {
+		if a.CustomerID == customerID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) UpdateAlertFired(alertID string, maxFired int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.alerts[alertID]
+	if !ok {
+		return nil
+	}
+	a.MaxFired = maxFired
+	s.alerts[alertID] = a
+	return nil
 }

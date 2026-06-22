@@ -10,6 +10,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/invoice"
 	"github.com/Arjun0606/smolbill/internal/meter"
+	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
 )
 
@@ -48,6 +49,23 @@ func (s *Server) finalizeInvoice(w http.ResponseWriter, r *http.Request) {
 	inv := res.Invoice
 	inv.ID = id.New("inv")
 	inv.Status = "finalized"
+
+	// If a payment rail is configured, push to it BEFORE persisting so we never
+	// record a finalized invoice the processor doesn't have. The push is
+	// idempotent on the invoice id, so a retry after a transient failure is safe.
+	if s.proc != nil {
+		cust, _, _ := s.store.GetCustomer(inv.CustomerID)
+		push, err := s.proc.PushInvoice(r.Context(), payments.PushRequest{
+			Invoice: inv, Customer: cust, IdempotencyKey: inv.ID, Hash: res.Hash,
+		})
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, "payment processor push failed: "+err.Error())
+			return
+		}
+		inv.StripeInvoiceID = push.ExternalID
+		inv.Status = push.Status
+	}
+
 	ledger := reconcile.LedgerFromResult(inv.ID, res)
 	if err := s.store.SaveFinalizedInvoice(inv, ledger); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -57,6 +75,10 @@ func (s *Server) finalizeInvoice(w http.ResponseWriter, r *http.Request) {
 	resp := invoiceResponse(res)
 	resp["invoice_id"] = inv.ID
 	resp["status"] = inv.Status
+	if inv.StripeInvoiceID != "" {
+		resp["processor"] = s.proc.Name()
+		resp["external_invoice_id"] = inv.StripeInvoiceID
+	}
 	writeJSON(w, http.StatusCreated, resp)
 }
 

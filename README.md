@@ -43,7 +43,13 @@ docker compose up
 | `GET`  | `/v1/reconcile/{invoice_id}` | **THE HEADLINE** — prove the invoice still agrees with the live event log |
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
+| `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |
 | `GET`  | `/healthz` | liveness |
+
+### Payments (Stripe) + spend alerts
+
+- **Stripe** is a processor-agnostic adapter (`internal/payments`): `Processor` interface, a thin net/http `stripe.Client` (amounts sent as exact integer cents, idempotency keys on every call), and a `fake` test double. Set `STRIPE_SECRET_KEY` and `finalize` pushes the invoice to Stripe; unset, finalize is local-only. smolbill never holds funds or becomes a Merchant of Record.
+- **Spend alerts** fire automatically on ingest: when a customer's projected current-period spend crosses each threshold of their budget, smolbill POSTs to the webhook — before the overage. Each threshold fires at most once per period (no spam).
 
 ### The reconciliation ledger (the demo)
 
@@ -74,6 +80,8 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Store** (`internal/store`) — one interface, two backends: `memory` (tests, demo) and `postgres` (pgx, embedded schema applied on connect). The engine never depends on a concrete DB.
 - **HTTP** (`internal/api`) — the `/v1` surface above, no web framework (net/http 1.22+ routing → single binary).
 - **Reconcile** (`internal/reconcile`) — pure diff of stored ledger vs. live recompute; the proof behind `/v1/reconcile`.
+- **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, `stripe` thin client (exact cents, idempotency), `fake` test double.
+- **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
 - **Schema** (`migrations/0001_init.sql`) — the full v0 Postgres data model from the build plan §8.
 
 ## Run it
@@ -102,8 +110,8 @@ Postgres integration tests run when `SMOLBILL_TEST_DATABASE_URL` is set; otherwi
 - **Phase 1 — deterministic core** ✅
 - **Phase 1+ — Postgres backend + `/v1` HTTP API** ✅
 - **Phase 2 — reconciliation ledger + entitlements** ✅ (`GET /reconcile/{invoice}`)
-- **Phase 3 — Stripe push + spend alerts (50/80/100%)** ← next
-- **Phase 4 — dashboard + free customer wallet/portal**
+- **Phase 3 — Stripe push + spend alerts (50/80/100%)** ✅
+- **Phase 4 — dashboard + free customer wallet/portal** ← next
 - **Phase 5 — MCP server (thin, intent-only)**
 - **Phase 6 — single-binary release + Show HN**
 

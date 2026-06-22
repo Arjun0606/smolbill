@@ -526,6 +526,62 @@ func (s *Store) EntitlementsForCustomer(customerID string) ([]domain.Entitlement
 	return out, rows.Err()
 }
 
+// --- alerts ---
+
+func (s *Store) PutAlert(a domain.Alert) error {
+	if a.ID == "" {
+		a.ID = id.New("alert")
+	}
+	thresholds, err := json.Marshal(a.Thresholds)
+	if err != nil {
+		return fmt.Errorf("postgres: marshal thresholds: %w", err)
+	}
+	_, err = s.pool.Exec(s.ctx,
+		`INSERT INTO alerts (id, customer_id, budget, currency, thresholds, webhook_url, max_fired)
+		 VALUES ($1,$2,$3::numeric,$4,$5,$6,$7)
+		 ON CONFLICT (id) DO UPDATE SET budget = EXCLUDED.budget, thresholds = EXCLUDED.thresholds,
+		   webhook_url = EXCLUDED.webhook_url`,
+		a.ID, a.CustomerID, a.Budget.String(), a.Currency, thresholds, a.WebhookURL, a.MaxFired,
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: PutAlert: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AlertsForCustomer(customerID string) ([]domain.Alert, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, customer_id, budget::text, currency, thresholds, webhook_url, max_fired
+		 FROM alerts WHERE customer_id = $1 ORDER BY id`, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: AlertsForCustomer: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Alert
+	for rows.Next() {
+		var a domain.Alert
+		var budget *string
+		var thresholds []byte
+		if err := rows.Scan(&a.ID, &a.CustomerID, &budget, &a.Currency, &thresholds, &a.WebhookURL, &a.MaxFired); err != nil {
+			return nil, fmt.Errorf("postgres: scan alert: %w", err)
+		}
+		a.Budget = parseDec(budget)
+		if len(thresholds) > 0 {
+			_ = json.Unmarshal(thresholds, &a.Thresholds)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateAlertFired(alertID string, maxFired int) error {
+	_, err := s.pool.Exec(s.ctx, `UPDATE alerts SET max_fired = $2 WHERE id = $1`, alertID, maxFired)
+	if err != nil {
+		return fmt.Errorf("postgres: UpdateAlertFired: %w", err)
+	}
+	return nil
+}
+
 // --- helpers ---
 
 func nullTime(t time.Time) *time.Time {

@@ -15,18 +15,22 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/Arjun0606/smolbill/internal/alerts"
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/ingest"
 	"github.com/Arjun0606/smolbill/internal/invoice"
+	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/store"
 )
 
 // Server holds the dependencies of the HTTP layer.
 type Server struct {
-	store store.Store
-	ing   *ingest.Ingester
-	now   func() time.Time // injectable clock for deterministic tests
+	store    store.Store
+	ing      *ingest.Ingester
+	now      func() time.Time   // injectable clock for deterministic tests
+	proc     payments.Processor // optional payment rail; nil => finalize is local-only
+	notifier alerts.Notifier    // spend-alert delivery
 }
 
 // New builds a Server. A nil clock defaults to time.Now (UTC).
@@ -34,8 +38,15 @@ func New(st store.Store, ing *ingest.Ingester, clock func() time.Time) *Server {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
-	return &Server{store: st, ing: ing, now: clock}
+	return &Server{store: st, ing: ing, now: clock, notifier: alerts.NewWebhookNotifier()}
 }
+
+// SetProcessor attaches a payment rail (e.g. Stripe). When set, finalize pushes
+// the materialized invoice to the processor; when nil, finalize is local-only.
+func (s *Server) SetProcessor(p payments.Processor) { s.proc = p }
+
+// SetNotifier overrides the spend-alert notifier (tests inject a recorder).
+func (s *Server) SetNotifier(n alerts.Notifier) { s.notifier = n }
 
 // Handler returns the routed http.Handler for the whole /v1 surface.
 func (s *Server) Handler() http.Handler {
@@ -52,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/reconcile/{invoice_id}", s.reconcileInvoice)
 	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
 	mux.HandleFunc("GET /v1/entitlements/{customer_id}", s.getEntitlements)
+	mux.HandleFunc("POST /v1/alerts", s.createAlert)
 	return mux
 }
 
@@ -299,6 +311,8 @@ func (s *Server) ingestEvent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Usage changed — proactively evaluate spend alerts (best-effort).
+	s.evaluateAlerts(r.Context(), accepted.CustomerID)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"status": "accepted", "event_id": accepted.ID,
 		"dedup_window": s.ing.Window().String(),

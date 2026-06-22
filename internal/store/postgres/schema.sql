@@ -144,3 +144,15 @@ ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS meter_code TEXT;
 
 -- Phase 2: ledger is one row per invoice line; record which meter it traces.
 ALTER TABLE reconciliation_ledger ADD COLUMN IF NOT EXISTS meter_code TEXT;
+
+-- Phase 3: proactive spend alerts (50/80/100% of budget).
+CREATE TABLE IF NOT EXISTS alerts (
+    id          TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    budget      NUMERIC NOT NULL,
+    currency    TEXT NOT NULL,
+    thresholds  JSONB NOT NULL,          -- e.g. [50,80,100]
+    webhook_url TEXT NOT NULL,
+    max_fired   INT NOT NULL DEFAULT 0,  -- high-water mark of fired thresholds
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

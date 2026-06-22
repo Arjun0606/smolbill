@@ -25,7 +25,7 @@ func testStore(t *testing.T) *Store {
 	}
 	t.Cleanup(st.Close)
 	// Clean slate for repeatable runs.
-	for _, tbl := range []string{"reconciliation_ledger", "invoice_lines", "invoices", "entitlements", "events", "prices", "subscriptions", "plans", "meters", "customers"} {
+	for _, tbl := range []string{"alerts", "reconciliation_ledger", "invoice_lines", "invoices", "entitlements", "events", "prices", "subscriptions", "plans", "meters", "customers"} {
 		if _, err := st.pool.Exec(context.Background(), "DELETE FROM "+tbl); err != nil {
 			t.Fatalf("cleanup %s: %v", tbl, err)
 		}
@@ -205,5 +205,37 @@ func TestPostgresEntitlementRoundTrip(t *testing.T) {
 	}
 	if len(got) != 1 || !got[0].LimitValue.Equal(d("10000")) || got[0].MeterCode != "tokens" {
 		t.Fatalf("entitlement round-trip wrong: %+v", got)
+	}
+}
+
+func TestPostgresAlertRoundTrip(t *testing.T) {
+	st := testStore(t)
+	if err := st.PutCustomer(domain.Customer{ID: "cus_al", Name: "AL"}); err != nil {
+		t.Fatal(err)
+	}
+	a := domain.Alert{
+		ID: "alert_1", CustomerID: "cus_al", Budget: d("100.00"), Currency: "USD",
+		Thresholds: []int{50, 80, 100}, WebhookURL: "https://hook.test/x",
+	}
+	if err := st.PutAlert(a); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.AlertsForCustomer("cus_al")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].Budget.Equal(d("100.00")) || len(got[0].Thresholds) != 3 {
+		t.Fatalf("alert round-trip wrong: %+v", got)
+	}
+	if got[0].MaxFired != 0 {
+		t.Fatalf("max_fired = %d, want 0", got[0].MaxFired)
+	}
+	// Advance the high-water mark.
+	if err := st.UpdateAlertFired("alert_1", 80); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.AlertsForCustomer("cus_al")
+	if got[0].MaxFired != 80 {
+		t.Fatalf("max_fired after update = %d, want 80", got[0].MaxFired)
 	}
 }

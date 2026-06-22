@@ -55,4 +55,11 @@ type Store interface {
 
 	PutEntitlement(e domain.Entitlement) error
 	EntitlementsForCustomer(customerID string) ([]domain.Entitlement, error)
+
+	// --- spend alerts (Phase 3) ---
+
+	PutAlert(a domain.Alert) error
+	AlertsForCustomer(customerID string) ([]domain.Alert, error)
+	// UpdateAlertFired advances an alert's high-water mark of fired thresholds.
+	UpdateAlertFired(alertID string, maxFired int) error
 }
