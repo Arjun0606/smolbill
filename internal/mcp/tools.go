@@ -11,8 +11,11 @@ import (
 
 	"github.com/Arjun0606/smolbill/internal/alerts"
 	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
 	"github.com/Arjun0606/smolbill/internal/id"
+	"github.com/Arjun0606/smolbill/internal/invoice"
+	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
 )
 
@@ -95,9 +98,12 @@ func (s *Server) buildTools() []tool {
 		},
 		{
 			name:        "get_usage",
-			description: "Get a customer's current-period usage and projected bill (computed deterministically by the engine).",
-			inputSchema: obj(map[string]any{"customer_id": str("customer id")}, "customer_id"),
-			handler:     s.getUsage,
+			description: "Get a customer's current-period usage and projected bill (computed deterministically by the engine). Pass as_of (RFC3339) to time-travel: see the bill as it was known at a past moment, before late events arrived.",
+			inputSchema: obj(map[string]any{
+				"customer_id": str("customer id"),
+				"as_of":       str("optional RFC3339; recompute the bill as of this past moment"),
+			}, "customer_id"),
+			handler: s.getUsage,
 		},
 		{
 			name:        "preview_invoice",
@@ -164,6 +170,86 @@ func (s *Server) buildTools() []tool {
 			description: "Inspect the dunning/recovery state of an invoice: status, attempts made, the last decline reason, and when the next retry is due.",
 			inputSchema: obj(map[string]any{"invoice_id": str("invoice id")}, "invoice_id"),
 			handler:     s.getCollectionTool,
+		},
+		{
+			name:        "record_usage",
+			description: "Record a usage event (idempotent on idempotency_key — a repeat is never double-counted). High-volume ingestion normally comes from your app/SDK; the agent can record events for setup or testing.",
+			inputSchema: obj(map[string]any{
+				"idempotency_key": str("unique key; a repeat is ignored"),
+				"customer_id":     str("customer id"),
+				"meter_code":      str("meter this event feeds"),
+				"properties":      map[string]any{"type": "object", "description": `event properties, e.g. {"n": 1000}`},
+				"event_time":      str("optional RFC3339; defaults to now"),
+			}, "idempotency_key", "customer_id", "meter_code"),
+			handler: s.recordUsageTool,
+		},
+		{
+			name:        "create_entitlement",
+			description: "Define a feature entitlement for a customer: a boolean feature flag, or a metered allowance whose limit is checked live against the event log.",
+			inputSchema: obj(map[string]any{
+				"customer_id":  str("customer id"),
+				"feature":      str("feature name, e.g. 'api_access'"),
+				"kind":         map[string]any{"type": "string", "enum": []string{"boolean", "metered"}},
+				"meter_code":   str("for metered: which meter measures usage"),
+				"limit_value":  str("for metered: the allowance as a decimal string"),
+				"period_start": str("optional RFC3339"),
+				"period_end":   str("optional RFC3339"),
+			}, "customer_id", "feature", "kind"),
+			handler: s.createEntitlementTool,
+		},
+		{
+			name:        "check_entitlement",
+			description: "Check a customer's live entitlements: for each feature whether they're within limit, how much is used, and how much remains. Used value is derived from the event log, never a trusted counter.",
+			inputSchema: obj(map[string]any{"customer_id": str("customer id")}, "customer_id"),
+			handler:     s.checkEntitlementTool,
+		},
+		{
+			name:        "list_meters",
+			description: "List all defined meters (code + aggregation).",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.listMetersTool,
+		},
+		{
+			name:        "list_webhooks",
+			description: "List registered webhook endpoints (secrets are never shown).",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.listWebhooksTool,
+		},
+		{
+			name:        "topup_wallet",
+			description: "Credit a customer's prepaid wallet (idempotent on idempotency_key).",
+			inputSchema: obj(map[string]any{
+				"customer_id":     str("customer id"),
+				"amount":          str("amount to credit as a decimal string"),
+				"currency":        str("ISO-4217; defaults to USD"),
+				"reason":          str("optional note"),
+				"idempotency_key": str("optional; makes the credit safely retryable"),
+			}, "customer_id", "amount"),
+			handler: s.topupWalletTool,
+		},
+		{
+			name:        "get_wallet",
+			description: "Get a customer's prepaid wallet balance.",
+			inputSchema: obj(map[string]any{"customer_id": str("customer id")}, "customer_id"),
+			handler:     s.getWalletTool,
+		},
+		{
+			name:        "verify_invoice",
+			description: "Cross-boundary reconcile: ask the payment processor what it ACTUALLY billed for an invoice and assert it equals the ledger to the exact minor unit. Requires a configured processor.",
+			inputSchema: obj(map[string]any{"invoice_id": str("invoice id")}, "invoice_id"),
+			handler:     s.verifyInvoiceTool,
+		},
+		{
+			name:        "collect_invoice",
+			description: "Attempt to collect payment for an unpaid invoice now (a dunning retry). Routes by decline reason and updates the recovery state. Requires a configured processor.",
+			inputSchema: obj(map[string]any{"invoice_id": str("invoice id")}, "invoice_id"),
+			handler:     s.collectInvoiceTool,
+		},
+		{
+			name:        "run_dunning",
+			description: "Process every collection whose retry is due (the dunning tick). Requires a configured processor. Returns how many were processed and their outcomes.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.runDunningTool,
 		},
 	}
 }
@@ -356,6 +442,323 @@ func (s *Server) getCollectionTool(_ context.Context, args json.RawMessage) (str
 	return msg + ".", nil
 }
 
+func (s *Server) recordUsageTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		IdempotencyKey string         `json:"idempotency_key"`
+		CustomerID     string         `json:"customer_id"`
+		MeterCode      string         `json:"meter_code"`
+		Properties     map[string]any `json:"properties"`
+		EventTime      string         `json:"event_time"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.IdempotencyKey == "" || a.CustomerID == "" || a.MeterCode == "" {
+		return "", fmt.Errorf("idempotency_key, customer_id and meter_code are required")
+	}
+	et := s.now()
+	if a.EventTime != "" {
+		t, err := time.Parse(time.RFC3339, a.EventTime)
+		if err != nil {
+			return "", fmt.Errorf("event_time must be RFC3339")
+		}
+		et = t
+	}
+	if _, err := s.ing.Accept(domain.Event{
+		IdempotencyKey: a.IdempotencyKey, CustomerID: a.CustomerID, MeterCode: a.MeterCode,
+		EventTime: et, Properties: a.Properties,
+	}, s.now()); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Recorded usage event %q for %s on meter %s (idempotent — a repeat is never double-counted).",
+		a.IdempotencyKey, a.CustomerID, a.MeterCode), nil
+}
+
+func (s *Server) createEntitlementTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		CustomerID, Feature, Kind, MeterCode, LimitValue, PeriodStart, PeriodEnd string
+	}
+	if err := json.Unmarshal(args, &struct {
+		CustomerID  *string `json:"customer_id"`
+		Feature     *string `json:"feature"`
+		Kind        *string `json:"kind"`
+		MeterCode   *string `json:"meter_code"`
+		LimitValue  *string `json:"limit_value"`
+		PeriodStart *string `json:"period_start"`
+		PeriodEnd   *string `json:"period_end"`
+	}{&a.CustomerID, &a.Feature, &a.Kind, &a.MeterCode, &a.LimitValue, &a.PeriodStart, &a.PeriodEnd}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if _, ok, _ := s.store.GetCustomer(a.CustomerID); !ok {
+		return "", fmt.Errorf("unknown customer_id %q", a.CustomerID)
+	}
+	kind := domain.EntitlementKind(a.Kind)
+	if kind != domain.EntBoolean && kind != domain.EntMetered {
+		return "", fmt.Errorf("kind must be boolean|metered")
+	}
+	e := domain.Entitlement{ID: id.New("ent"), CustomerID: a.CustomerID, Feature: a.Feature, Kind: kind, MeterCode: a.MeterCode}
+	if kind == domain.EntMetered {
+		lv, err := decimal.NewFromString(a.LimitValue)
+		if err != nil {
+			return "", fmt.Errorf("limit_value must be a decimal string for a metered entitlement")
+		}
+		e.LimitValue = lv
+		start, end, err := s.resolvePeriod(a.PeriodStart, a.PeriodEnd)
+		if err != nil {
+			return "", err
+		}
+		e.PeriodStart, e.PeriodEnd = start, end
+	}
+	if err := s.store.PutEntitlement(e); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Created %s entitlement %q for customer %s.", a.Kind, a.Feature, a.CustomerID), nil
+}
+
+func (s *Server) checkEntitlementTool(_ context.Context, args json.RawMessage) (string, error) {
+	cid, err := singleCustomerID(args)
+	if err != nil {
+		return "", err
+	}
+	sts, err := engine.CheckEntitlements(s.store, cid)
+	if err != nil {
+		return "", err
+	}
+	if len(sts) == 0 {
+		return fmt.Sprintf("Customer %s has no entitlements.", cid), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Entitlements for %s:\n", cid)
+	for _, e := range sts {
+		if e.Kind == "metered" {
+			verdict := "within limit"
+			if !e.WithinLimit {
+				verdict = "OVER LIMIT"
+			}
+			fmt.Fprintf(&b, "  • %s: %s/%s used (%s%%) — %s\n", e.Feature, e.Used, e.Limit, e.PctUsed, verdict)
+		} else {
+			fmt.Fprintf(&b, "  • %s: enabled\n", e.Feature)
+		}
+	}
+	return b.String(), nil
+}
+
+func (s *Server) listMetersTool(_ context.Context, _ json.RawMessage) (string, error) {
+	ms, err := s.store.Meters()
+	if err != nil {
+		return "", err
+	}
+	if len(ms) == 0 {
+		return "No meters defined. Create one with create_meter.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d meter(s):\n", len(ms))
+	for _, m := range ms {
+		fmt.Fprintf(&b, "  • %s (%s)\n", m.Code, m.Aggregation)
+	}
+	return b.String(), nil
+}
+
+func (s *Server) listWebhooksTool(_ context.Context, _ json.RawMessage) (string, error) {
+	whs, err := s.store.Webhooks()
+	if err != nil {
+		return "", err
+	}
+	if len(whs) == 0 {
+		return "No webhooks registered.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d webhook(s):\n", len(whs))
+	for _, w := range whs {
+		ev := "all events"
+		if len(w.Events) > 0 {
+			ev = strings.Join(w.Events, ", ")
+		}
+		fmt.Fprintf(&b, "  • %s → %s [%s]\n", w.ID, w.URL, ev)
+	}
+	return b.String(), nil
+}
+
+func (s *Server) topupWalletTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		CustomerID, Amount, Currency, Reason, IdempotencyKey string
+	}
+	if err := json.Unmarshal(args, &struct {
+		CustomerID     *string `json:"customer_id"`
+		Amount         *string `json:"amount"`
+		Currency       *string `json:"currency"`
+		Reason         *string `json:"reason"`
+		IdempotencyKey *string `json:"idempotency_key"`
+	}{&a.CustomerID, &a.Amount, &a.Currency, &a.Reason, &a.IdempotencyKey}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if _, ok, _ := s.store.GetCustomer(a.CustomerID); !ok {
+		return "", fmt.Errorf("unknown customer_id %q", a.CustomerID)
+	}
+	amt, err := decimal.NewFromString(a.Amount)
+	if err != nil || !amt.IsPositive() {
+		return "", fmt.Errorf("amount must be a positive decimal string")
+	}
+	currency := a.Currency
+	if currency == "" {
+		currency = "USD"
+	}
+	w, err := s.store.TopUpWallet(a.CustomerID, amt, currency, a.Reason, a.IdempotencyKey)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Credited %s %s to %s. New balance: %s %s.",
+		money.Format(amt, currency), currency, a.CustomerID, money.Format(w.Balance, w.Currency), w.Currency), nil
+}
+
+func (s *Server) getWalletTool(_ context.Context, args json.RawMessage) (string, error) {
+	cid, err := singleCustomerID(args)
+	if err != nil {
+		return "", err
+	}
+	w, ok, err := s.store.Wallet(cid)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return fmt.Sprintf("Customer %s has no wallet yet (balance 0).", cid), nil
+	}
+	return fmt.Sprintf("Wallet for %s: balance %s %s.", cid, money.Format(w.Balance, w.Currency), w.Currency), nil
+}
+
+func (s *Server) verifyInvoiceTool(ctx context.Context, args json.RawMessage) (string, error) {
+	if s.proc == nil {
+		return "", fmt.Errorf("no payment processor configured; verify needs a rail")
+	}
+	var invID string
+	if err := json.Unmarshal(args, &struct {
+		InvoiceID *string `json:"invoice_id"`
+	}{&invID}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	inv, ok, err := s.store.GetInvoice(invID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("unknown invoice_id %q", invID)
+	}
+	if inv.StripeInvoiceID == "" {
+		return "", fmt.Errorf("invoice %q has not been pushed to a processor", invID)
+	}
+	fetched, err := s.proc.FetchInvoice(ctx, inv.StripeInvoiceID)
+	if err != nil {
+		return "", err
+	}
+	ledgerMinor := money.New(inv.Total, inv.Currency).MinorUnits()
+	if fetched.AmountMinor == ledgerMinor {
+		return fmt.Sprintf("Invoice %s verifies: the %s processor billed exactly the ledger amount (%d %s minor units).",
+			inv.ID, s.proc.Name(), ledgerMinor, inv.Currency), nil
+	}
+	return fmt.Sprintf("DRIFT across the processor on %s: ledger %d vs processor %d minor units (drift %d). The processor billed something different — a tax line, a manual edit, or a rounding rule the internal ledger can't see.",
+		inv.ID, ledgerMinor, fetched.AmountMinor, fetched.AmountMinor-ledgerMinor), nil
+}
+
+func (s *Server) collectInvoiceTool(ctx context.Context, args json.RawMessage) (string, error) {
+	if s.proc == nil {
+		return "", fmt.Errorf("no payment processor configured; collection needs a rail")
+	}
+	var invID string
+	if err := json.Unmarshal(args, &struct {
+		InvoiceID *string `json:"invoice_id"`
+	}{&invID}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	col, ok, err := s.store.GetCollection(invID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("no collection for invoice %q", invID)
+	}
+	if dunning.Status(col.Status).Terminal() {
+		return fmt.Sprintf("Collection for %s is already %s — nothing to do.", invID, col.Status), nil
+	}
+	col, err = s.attemptCollectionMCP(ctx, col)
+	if err != nil {
+		return "", err
+	}
+	msg := fmt.Sprintf("Collection for %s: status %s after %d attempt(s)", col.InvoiceID, col.Status, col.Attempts)
+	if col.LastReason != "" {
+		msg += fmt.Sprintf(", last decline: %s", col.LastReason)
+	}
+	return msg + ".", nil
+}
+
+func (s *Server) runDunningTool(ctx context.Context, _ json.RawMessage) (string, error) {
+	if s.proc == nil {
+		return "", fmt.Errorf("no payment processor configured; dunning needs a rail")
+	}
+	due, err := s.store.CollectionsDue(s.now())
+	if err != nil {
+		return "", err
+	}
+	if len(due) == 0 {
+		return "No collections are due. Nothing to run.", nil
+	}
+	counts := map[string]int{}
+	var faults int
+	for _, col := range due {
+		updated, err := s.attemptCollectionMCP(ctx, col)
+		if err != nil {
+			faults++
+			continue
+		}
+		counts[updated.Status]++
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Ran dunning on %d due collection(s):", len(due))
+	for st, n := range counts {
+		fmt.Fprintf(&b, " %d %s,", n, st)
+	}
+	if faults > 0 {
+		fmt.Fprintf(&b, " %d processor fault(s)", faults)
+	}
+	return strings.TrimRight(b.String(), ","), nil
+}
+
+// attemptCollectionMCP runs one charge attempt and folds the outcome through the
+// pure dunning state machine (the same core the HTTP path uses). Webhooks are NOT
+// emitted here — those fire from the HTTP/cron dunning path; this is the operator
+// driving a retry interactively and reading the result.
+func (s *Server) attemptCollectionMCP(ctx context.Context, col domain.Collection) (domain.Collection, error) {
+	res, err := s.proc.ChargeInvoice(ctx, col.ExternalID)
+	if err != nil {
+		return col, err
+	}
+	now := s.now()
+	st := dunning.State{Status: dunning.Status(col.Status), Attempts: col.Attempts, LastReason: col.LastReason}
+	if col.FirstFailedAt != nil {
+		st.FirstFailedAt = *col.FirstFailedAt
+	}
+	if col.NextAttemptAt != nil {
+		st.NextAttemptAt = *col.NextAttemptAt
+	}
+	st = st.RecordAttempt(res.Status == "paid", res.FailureReason, dunning.DefaultSchedule, now)
+	col.Status = string(st.Status)
+	col.Attempts = st.Attempts
+	col.LastReason = st.LastReason
+	col.FirstFailedAt = nilTime(st.FirstFailedAt)
+	col.NextAttemptAt = nilTime(st.NextAttemptAt)
+	col.UpdatedAt = now
+	if err := s.store.PutCollection(col); err != nil {
+		return col, err
+	}
+	return col, nil
+}
+
+func nilTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
 // --- handlers (intent in; the engine/store does the work) ---
 
 func (s *Server) createMeter(_ context.Context, args json.RawMessage) (string, error) {
@@ -477,16 +880,41 @@ func (s *Server) setSpendCap(_ context.Context, args json.RawMessage) (string, e
 }
 
 func (s *Server) getUsage(_ context.Context, args json.RawMessage) (string, error) {
-	cid, err := singleCustomerID(args)
-	if err != nil {
-		return "", err
+	var a struct {
+		CustomerID string `json:"customer_id"`
+		AsOf       string `json:"as_of"`
 	}
-	res, sub, err := engine.ComputeForActiveSub(s.store, cid)
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.CustomerID == "" {
+		return "", fmt.Errorf("customer_id is required")
+	}
+	cid := a.CustomerID
+
+	var (
+		res invoice.Result
+		sub domain.Subscription
+		err error
+	)
+	if a.AsOf != "" {
+		asOf, perr := time.Parse(time.RFC3339, a.AsOf)
+		if perr != nil {
+			return "", fmt.Errorf("as_of must be RFC3339")
+		}
+		res, sub, err = engine.ComputeAsOfForActiveSub(s.store, cid, asOf)
+	} else {
+		res, sub, err = engine.ComputeForActiveSub(s.store, cid)
+	}
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Usage for %s (period %s → %s):\n", cid,
+	when := "current"
+	if a.AsOf != "" {
+		when = "as of " + a.AsOf
+	}
+	fmt.Fprintf(&b, "Usage for %s (%s, period %s → %s):\n", cid, when,
 		sub.CurrentPeriodStart.Format("2006-01-02"), sub.CurrentPeriodEnd.Format("2006-01-02"))
 	for _, tr := range res.Traces {
 		code := tr.MeterCode

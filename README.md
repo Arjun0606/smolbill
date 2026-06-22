@@ -108,9 +108,13 @@ Both expose typed, signature-verifying webhook handling (`verifyWebhook` / `veri
     "env": { "DATABASE_URL": "postgres://…" } } } }
 ```
 
-The agent can drive the **whole lifecycle**, not just setup: `create_customer`, `list_customers`, `create_meter`, `create_plan`, `attach_plan`, `set_spend_cap`, `create_webhook`, `get_usage`, `preview_invoice`, `simulate_plan_change`, `finalize_invoice`, `reconcile_invoice`, `get_collection`, and `get_analytics`. The intended path is **connect your agent and get billing done by talking** — for purists, every tool has a REST endpoint and SDK call too.
+The agent can drive **every feature**, not just setup — the intended path is **connect your agent and run your billing by talking** (for purists, every tool has a REST endpoint and SDK call too):
 
-All tools are **intent-only**: there is deliberately **no `charge()` or `calculate_bill()`** — the agent passes intent; the deterministic engine computes every cent. A test asserts no money-math tool can ever be exposed.
+- **configure:** `create_customer`, `create_meter`, `create_plan`, `attach_plan`, `create_entitlement`, `create_webhook`, `set_spend_cap`
+- **operate:** `record_usage`, `finalize_invoice`, `topup_wallet`, `collect_invoice`, `run_dunning`
+- **observe / prove:** `list_customers`, `list_meters`, `list_webhooks`, `get_usage` (with `as_of` time-travel), `preview_invoice`, `simulate_plan_change`, `reconcile_invoice`, `verify_invoice`, `check_entitlement`, `get_wallet`, `get_collection`, `get_analytics`
+
+All tools are **intent-only**: there is deliberately **no `charge()` or `calculate_bill()`** — the agent passes intent; the deterministic engine computes every cent (`collect_invoice`/`run_dunning` ask the *processor* to charge, they never do the math). A test asserts no money-math tool can ever be exposed.
 
 ### Dashboard + free customer portal
 

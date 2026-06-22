@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Arjun0606/smolbill/internal/ingest"
+	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/store"
 )
 
@@ -35,6 +36,7 @@ type Server struct {
 	store store.Store
 	ing   *ingest.Ingester
 	now   func() time.Time
+	proc  payments.Processor // optional rail; enables verify/collect/dunning tools
 	tools []tool
 }
 
@@ -47,6 +49,10 @@ func New(st store.Store, ing *ingest.Ingester, clock func() time.Time) *Server {
 	s.tools = s.buildTools()
 	return s
 }
+
+// SetProcessor attaches a payment rail so the agent can verify invoices against
+// the processor and run dunning. Without it, those tools return a clear error.
+func (s *Server) SetProcessor(p payments.Processor) { s.proc = p }
 
 // --- JSON-RPC envelope ---
 

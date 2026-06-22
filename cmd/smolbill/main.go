@@ -130,8 +130,14 @@ func runMCP() error {
 		return err
 	}
 	defer closeStore()
+	srv := mcp.New(st, ingest.New(st, 0), nil)
+	// Same optional rail as the HTTP server: with STRIPE_SECRET_KEY set, the agent
+	// can verify invoices against the processor and run dunning.
+	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
+		srv.SetProcessor(stripe.New(key))
+	}
 	log.Printf("smolbill: MCP server ready on stdio")
-	return mcp.New(st, ingest.New(st, 0), nil).Serve(context.Background(), os.Stdin, os.Stdout)
+	return srv.Serve(context.Background(), os.Stdin, os.Stdout)
 }
 
 func dec(s string) decimal.Decimal {

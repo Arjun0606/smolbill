@@ -4,14 +4,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/invoice"
-	"github.com/Arjun0606/smolbill/internal/meter"
 	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
@@ -291,52 +288,12 @@ func (s *Server) createEntitlement(w http.ResponseWriter, r *http.Request) {
 // limit check from §9.
 func (s *Server) getEntitlements(w http.ResponseWriter, r *http.Request) {
 	customerID := r.PathValue("customer_id")
-	ents, err := s.store.EntitlementsForCustomer(customerID)
+	// Shared with the MCP server's check_entitlement, so an agent and a human can
+	// never get different answers to "is this customer within their limit?".
+	out, err := engine.CheckEntitlements(s.store, customerID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	meters, err := s.store.Meters()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	events, err := s.store.EventsForCustomer(customerID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	type entOut struct {
-		Feature     string `json:"feature"`
-		Kind        string `json:"kind"`
-		MeterCode   string `json:"meter_code,omitempty"`
-		Limit       string `json:"limit,omitempty"`
-		Used        string `json:"used,omitempty"`
-		Remaining   string `json:"remaining,omitempty"`
-		WithinLimit bool   `json:"within_limit"`
-		PctUsed     string `json:"pct_used,omitempty"`
-	}
-	out := make([]entOut, 0, len(ents))
-	for _, e := range ents {
-		o := entOut{Feature: e.Feature, Kind: string(e.Kind), WithinLimit: true}
-		if e.Kind == domain.EntMetered {
-			m, ok := meters[e.MeterCode]
-			used := decimal.Zero
-			if ok {
-				used, _ = meter.Aggregate(m, events, e.PeriodStart, e.PeriodEnd)
-			}
-			remaining := e.LimitValue.Sub(used)
-			o.MeterCode = e.MeterCode
-			o.Limit = e.LimitValue.String()
-			o.Used = used.String()
-			o.Remaining = remaining.String()
-			o.WithinLimit = used.LessThanOrEqual(e.LimitValue)
-			if e.LimitValue.IsPositive() {
-				o.PctUsed = used.Div(e.LimitValue).Mul(decimal.NewFromInt(100)).StringFixed(1)
-			}
-		}
-		out = append(out, o)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"customer_id": customerID, "entitlements": out})
 }

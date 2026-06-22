@@ -7,8 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/ingest"
+	"github.com/Arjun0606/smolbill/internal/payments"
+	"github.com/Arjun0606/smolbill/internal/payments/fake"
 	"github.com/Arjun0606/smolbill/internal/store/memory"
 )
 
@@ -216,6 +220,85 @@ func TestFullLifecycleByAI(t *testing.T) {
 
 	if an, isErr := s.callTool("get_analytics", nil); isErr || !strings.Contains(an, "customers: 1") {
 		t.Fatalf("get_analytics = %q", an)
+	}
+}
+
+// TestEntitlementsAndWalletByAI proves the agent can gate features and manage
+// prepaid balance: a metered entitlement is checked live against recorded usage
+// (within limit, then over), and a wallet topup reflects immediately.
+func TestEntitlementsAndWalletByAI(t *testing.T) {
+	s, _ := newSession(t)
+	cust, _ := s.callTool("create_customer", map[string]any{"name": "Acme"})
+	custID := extractID(t, cust, "id ")
+	s.callTool("create_meter", map[string]any{"code": "tokens", "name": "Tokens", "aggregation": "sum", "property_key": "n"})
+
+	if _, isErr := s.callTool("create_entitlement", map[string]any{
+		"customer_id": custID, "feature": "tokens_quota", "kind": "metered",
+		"meter_code": "tokens", "limit_value": "5000",
+	}); isErr {
+		t.Fatal("create_entitlement errored")
+	}
+
+	// 3000 used → within the 5000 limit.
+	s.callTool("record_usage", map[string]any{"idempotency_key": "u1", "customer_id": custID, "meter_code": "tokens", "properties": map[string]any{"n": 3000}})
+	if chk, _ := s.callTool("check_entitlement", map[string]any{"customer_id": custID}); !strings.Contains(chk, "within limit") {
+		t.Fatalf("expected within limit: %q", chk)
+	}
+	// 3000 more → 6000 over 5000.
+	s.callTool("record_usage", map[string]any{"idempotency_key": "u2", "customer_id": custID, "meter_code": "tokens", "properties": map[string]any{"n": 3000}})
+	if chk, _ := s.callTool("check_entitlement", map[string]any{"customer_id": custID}); !strings.Contains(chk, "OVER LIMIT") {
+		t.Fatalf("expected OVER LIMIT: %q", chk)
+	}
+
+	if _, isErr := s.callTool("topup_wallet", map[string]any{"customer_id": custID, "amount": "20.00", "currency": "USD"}); isErr {
+		t.Fatal("topup_wallet errored")
+	}
+	if wal, _ := s.callTool("get_wallet", map[string]any{"customer_id": custID}); !strings.Contains(wal, "20.00") {
+		t.Fatalf("wallet balance wrong: %q", wal)
+	}
+}
+
+// TestDunningToolsByAI proves the agent can run failed-payment recovery when a
+// processor is configured: a soft decline schedules a retry, the next attempt
+// recovers.
+func TestDunningToolsByAI(t *testing.T) {
+	s, _ := newSession(t)
+	proc := fake.New()
+	s.srv.SetProcessor(proc)
+
+	// Register an invoice with the fake (as a finalize+push would) and open a
+	// collection against it.
+	pr, err := proc.PushInvoice(context.Background(), payments.PushRequest{
+		Invoice:        domain.Invoice{ID: "inv_1", Total: decimal.RequireFromString("10.00"), Currency: "USD"},
+		IdempotencyKey: "inv_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.srvStore().PutCollection(domain.Collection{
+		InvoiceID: "inv_1", ExternalID: pr.ExternalID, Status: "scheduled", Currency: "USD", AmountMinor: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	proc.ProgramCharges(pr.ExternalID, payments.ChargeResult{Status: "failed", FailureReason: "insufficient_funds"})
+
+	if out, isErr := s.callTool("collect_invoice", map[string]any{"invoice_id": "inv_1"}); isErr || !strings.Contains(out, "retrying") {
+		t.Fatalf("collect 1 = %q (isErr=%v), want retrying", out, isErr)
+	}
+	if out, _ := s.callTool("collect_invoice", map[string]any{"invoice_id": "inv_1"}); !strings.Contains(out, "paid") {
+		t.Fatalf("collect 2 = %q, want paid (recovered)", out)
+	}
+}
+
+// TestProcessorToolsNeedRail proves the verify/dunning tools fail clearly when no
+// processor is configured, instead of pretending.
+func TestProcessorToolsNeedRail(t *testing.T) {
+	s, _ := newSession(t) // no processor
+	if _, isErr := s.callTool("run_dunning", map[string]any{}); !isErr {
+		t.Error("run_dunning without a processor must error")
+	}
+	if _, isErr := s.callTool("verify_invoice", map[string]any{"invoice_id": "x"}); !isErr {
+		t.Error("verify_invoice without a processor must error")
 	}
 }
 
