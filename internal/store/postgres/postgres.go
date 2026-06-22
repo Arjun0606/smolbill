@@ -629,6 +629,62 @@ func (s *Store) Webhooks() ([]domain.Webhook, error) {
 	return out, rows.Err()
 }
 
+// --- dunning / collections ---
+
+func (s *Store) PutCollection(c domain.Collection) error {
+	_, err := s.pool.Exec(s.ctx,
+		`INSERT INTO collections (invoice_id, external_id, status, attempts, first_failed_at, next_attempt_at, last_reason, currency, amount_minor, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
+		 ON CONFLICT (invoice_id) DO UPDATE SET
+		   external_id = EXCLUDED.external_id, status = EXCLUDED.status, attempts = EXCLUDED.attempts,
+		   first_failed_at = EXCLUDED.first_failed_at, next_attempt_at = EXCLUDED.next_attempt_at,
+		   last_reason = EXCLUDED.last_reason, currency = EXCLUDED.currency, amount_minor = EXCLUDED.amount_minor,
+		   updated_at = now()`,
+		c.InvoiceID, c.ExternalID, c.Status, c.Attempts, c.FirstFailedAt, c.NextAttemptAt, c.LastReason, c.Currency, c.AmountMinor)
+	if err != nil {
+		return fmt.Errorf("postgres: PutCollection: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetCollection(invoiceID string) (domain.Collection, bool, error) {
+	var c domain.Collection
+	err := s.pool.QueryRow(s.ctx,
+		`SELECT invoice_id, external_id, status, attempts, first_failed_at, next_attempt_at, last_reason, currency, amount_minor, updated_at
+		 FROM collections WHERE invoice_id = $1`, invoiceID).
+		Scan(&c.InvoiceID, &c.ExternalID, &c.Status, &c.Attempts, &c.FirstFailedAt, &c.NextAttemptAt,
+			&c.LastReason, &c.Currency, &c.AmountMinor, &c.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.Collection{}, false, nil
+	}
+	if err != nil {
+		return domain.Collection{}, false, fmt.Errorf("postgres: GetCollection: %w", err)
+	}
+	return c, true, nil
+}
+
+func (s *Store) CollectionsDue(now time.Time) ([]domain.Collection, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT invoice_id, external_id, status, attempts, first_failed_at, next_attempt_at, last_reason, currency, amount_minor, updated_at
+		 FROM collections
+		 WHERE status = 'scheduled' OR (status = 'retrying' AND next_attempt_at <= $1)
+		 ORDER BY next_attempt_at NULLS FIRST`, now)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: CollectionsDue: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Collection
+	for rows.Next() {
+		var c domain.Collection
+		if err := rows.Scan(&c.InvoiceID, &c.ExternalID, &c.Status, &c.Attempts, &c.FirstFailedAt,
+			&c.NextAttemptAt, &c.LastReason, &c.Currency, &c.AmountMinor, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan collection: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // --- wallet ---
 
 func (s *Store) Wallet(customerID string) (domain.Wallet, bool, error) {

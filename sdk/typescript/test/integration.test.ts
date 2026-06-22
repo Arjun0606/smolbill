@@ -75,6 +75,12 @@ test("full lifecycle: create → ingest → usage → finalize → reconcile →
   const after = await sb.usage.get(cus.id);
   assert.equal(after.projected_total, "64.00", "simulate must persist nothing");
 
+  // Dunning methods are wired to the right routes. This e2e binary runs without a
+  // payment processor, so collection declines (400) and no collection exists for
+  // the invoice (404) — the happy path is covered by the Go API suite.
+  await assert.rejects(() => sb.dunning.run(), (e: any) => e.status === 400);
+  await assert.rejects(() => sb.invoices.collection(invoiceId), (e: any) => e.status === 404);
+
   // Webhook registration returns a one-time secret.
   const wh = await sb.webhooks.create({ url: "https://example.test/hook", events: ["invoice.finalized"] });
   assert.ok(wh.secret, "webhook create returns a signing secret");

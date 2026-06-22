@@ -72,6 +72,16 @@ class TestLifecycle(unittest.TestCase):
         after = sb.usage.get(cus["id"])
         self.assertEqual(after["projected_total"], "64.00")  # simulate persisted nothing
 
+        # Dunning methods are wired to the right routes. This e2e binary runs
+        # without a processor, so collection declines (400) and no collection
+        # exists for the invoice (404) — happy path is covered by the Go suite.
+        with self.assertRaises(SmolbillError) as run_err:
+            sb.dunning.run()
+        self.assertEqual(run_err.exception.status, 400)
+        with self.assertRaises(SmolbillError) as col_err:
+            sb.invoices.collection(invoice_id)
+        self.assertEqual(col_err.exception.status, 404)
+
         wh = sb.webhooks.create(url="https://example.test/hook", events=["invoice.finalized"])
         self.assertTrue(wh["secret"])
         self.assertTrue(any(h["id"] == wh["id"] for h in sb.webhooks.list()["webhooks"]))

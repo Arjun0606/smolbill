@@ -7,6 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/invoice"
@@ -83,6 +84,20 @@ func (s *Server) finalizeInvoice(w http.ResponseWriter, r *http.Request) {
 		"currency":    inv.Currency,
 		"status":      inv.Status,
 	})
+
+	// If the invoice was pushed to a rail and isn't already paid, open a dunning
+	// collection so recovery can begin (via /v1/dunning/run or a manual /collect).
+	// The record exists the moment the bill goes out — no premium tier required.
+	if s.proc != nil && inv.StripeInvoiceID != "" && inv.Status != "paid" {
+		_ = s.store.PutCollection(domain.Collection{
+			InvoiceID:   inv.ID,
+			ExternalID:  inv.StripeInvoiceID,
+			Status:      string(dunning.Scheduled),
+			Currency:    inv.Currency,
+			AmountMinor: money.New(inv.Total, inv.Currency).MinorUnits(),
+			UpdatedAt:   s.now(),
+		})
+	}
 
 	resp := invoiceResponse(res)
 	resp["invoice_id"] = inv.ID

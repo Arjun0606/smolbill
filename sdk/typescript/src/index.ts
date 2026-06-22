@@ -158,6 +158,28 @@ export interface Wallet {
   [k: string]: unknown;
 }
 
+export type CollectionStatus = "scheduled" | "retrying" | "requires_action" | "paid" | "uncollectible";
+
+export interface Collection {
+  invoice_id: string;
+  external_invoice_id: string;
+  status: CollectionStatus;
+  attempts: number;
+  first_failed_at: string | null;
+  next_attempt_at: string | null;
+  last_reason: string;
+  currency: string;
+  amount_minor: number;
+  updated_at: string;
+}
+
+export interface DunningRunResult {
+  processed: number;
+  faults: number;
+  by_status: Record<string, number>;
+  checked_at: string;
+}
+
 export interface WebhookEvent {
   id: string;
   type: string;
@@ -310,6 +332,16 @@ export class Smolbill {
       this.verdict(`/v1/reconcile/${encodeURIComponent(invoiceId)}`),
     verify: (invoiceId: string) =>
       this.verdict(`/v1/invoices/${encodeURIComponent(invoiceId)}/verify`),
+    // Dunning: attempt collection now, or inspect the recovery state.
+    collect: (invoiceId: string) =>
+      this.request<Collection>("POST", `/v1/invoices/${encodeURIComponent(invoiceId)}/collect`),
+    collection: (invoiceId: string) =>
+      this.request<Collection>("GET", `/v1/invoices/${encodeURIComponent(invoiceId)}/collection`),
+  };
+
+  dunning = {
+    // Process every due collection — the endpoint a cron hits on a cadence.
+    run: () => this.request<DunningRunResult>("POST", "/v1/dunning/run"),
   };
 
   entitlements = {

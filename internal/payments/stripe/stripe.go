@@ -154,6 +154,62 @@ func (c *Client) FetchInvoice(ctx context.Context, externalID string) (payments.
 	}, nil
 }
 
+// ChargeInvoice attempts an off-session payment of an existing Stripe invoice
+// (POST /v1/invoices/{id}/pay). A card decline (HTTP 402, type "card_error") is
+// returned as a failed ChargeResult carrying the granular decline_code — NOT an
+// error — so the dunning engine can route by reason. Genuine faults (network,
+// 5xx, auth) return a non-nil error so the call itself can be retried later.
+func (c *Client) ChargeInvoice(ctx context.Context, externalID string) (payments.ChargeResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/invoices/"+externalID+"/pay", strings.NewReader(""))
+	if err != nil {
+		return payments.ChargeResult{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return payments.ChargeResult{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var ok struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal(body, &ok)
+		status := ok.Status
+		if status == "" {
+			status = "paid"
+		}
+		return payments.ChargeResult{Status: status}, nil
+	}
+
+	var e struct {
+		Error struct {
+			Type        string `json:"type"`
+			Code        string `json:"code"`
+			DeclineCode string `json:"decline_code"`
+			Message     string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &e)
+	// A card decline is an expected dunning outcome, not a transport failure: the
+	// decline_code (e.g. "insufficient_funds", "expired_card") is what dunning
+	// routes on; fall back to the generic code if Stripe omits it.
+	if e.Error.Type == "card_error" {
+		reason := e.Error.DeclineCode
+		if reason == "" {
+			reason = e.Error.Code
+		}
+		return payments.ChargeResult{Status: "failed", FailureReason: reason}, nil
+	}
+	if e.Error.Message != "" {
+		return payments.ChargeResult{}, fmt.Errorf("stripe %d: %s (%s)", resp.StatusCode, e.Error.Message, e.Error.Type)
+	}
+	return payments.ChargeResult{}, fmt.Errorf("stripe %d: %s", resp.StatusCode, string(body))
+}
+
 // post sends a form-encoded request to Stripe with bearer auth and an
 // idempotency key, decoding a 2xx JSON body into out (if non-nil) and turning a
 // non-2xx into a structured error.

@@ -32,6 +32,7 @@ type Store struct {
 	walletTxns   map[string][]domain.WalletTransaction // customer_id -> txns
 	walletKeys   map[string]bool                       // wallet idempotency keys seen
 	webhooks     map[string]domain.Webhook             // keyed by id
+	collections  map[string]domain.Collection          // invoice_id -> dunning state
 }
 
 // New returns an empty store.
@@ -50,6 +51,7 @@ func New() *Store {
 		walletTxns:   map[string][]domain.WalletTransaction{},
 		walletKeys:   map[string]bool{},
 		webhooks:     map[string]domain.Webhook{},
+		collections:  map[string]domain.Collection{},
 	}
 }
 
@@ -264,6 +266,39 @@ func (s *Store) Webhooks() ([]domain.Webhook, error) {
 	out := make([]domain.Webhook, 0, len(s.webhooks))
 	for _, wh := range s.webhooks {
 		out = append(out, wh)
+	}
+	return out, nil
+}
+
+// --- dunning / collections ---
+
+func (s *Store) PutCollection(c domain.Collection) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.collections[c.InvoiceID] = c
+	return nil
+}
+
+func (s *Store) GetCollection(invoiceID string) (domain.Collection, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.collections[invoiceID]
+	return c, ok, nil
+}
+
+func (s *Store) CollectionsDue(now time.Time) ([]domain.Collection, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Collection
+	for _, c := range s.collections {
+		switch c.Status {
+		case "scheduled":
+			out = append(out, c)
+		case "retrying":
+			if c.NextAttemptAt != nil && !c.NextAttemptAt.After(now) {
+				out = append(out, c)
+			}
+		}
 	}
 	return out, nil
 }

@@ -165,3 +165,19 @@ CREATE TABLE IF NOT EXISTS webhooks (
     secret     TEXT NOT NULL,                      -- HMAC-SHA256 signing secret
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 8: dunning / failed-payment recovery state, one row per unpaid invoice.
+CREATE TABLE IF NOT EXISTS collections (
+    invoice_id      TEXT PRIMARY KEY REFERENCES invoices(id),
+    external_id     TEXT NOT NULL,                     -- processor invoice the charge targets
+    status          TEXT NOT NULL,                     -- scheduled|retrying|requires_action|paid|uncollectible
+    attempts        INT NOT NULL DEFAULT 0,
+    first_failed_at TIMESTAMPTZ,                       -- null until the first failure
+    next_attempt_at TIMESTAMPTZ,                       -- null in terminal / requires_action states
+    last_reason     TEXT NOT NULL DEFAULT '',
+    currency        TEXT NOT NULL,
+    amount_minor    BIGINT NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Index the due-collections scan (the dunning tick): status + when the retry fires.
+CREATE INDEX IF NOT EXISTS idx_collections_due ON collections (status, next_attempt_at);

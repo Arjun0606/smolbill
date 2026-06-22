@@ -70,6 +70,14 @@ type Store interface {
 	PutWebhook(w domain.Webhook) error
 	Webhooks() ([]domain.Webhook, error)
 
+	// --- dunning / collections (Phase 8) ---
+
+	PutCollection(c domain.Collection) error
+	GetCollection(invoiceID string) (domain.Collection, bool, error)
+	// CollectionsDue returns collections eligible for a charge attempt now: those
+	// scheduled (never attempted) or retrying with a next_attempt_at at/before now.
+	CollectionsDue(now time.Time) ([]domain.Collection, error)
+
 	// --- wallet (Phase 4) ---
 
 	// Wallet returns the customer's wallet, or ok=false if none exists yet.

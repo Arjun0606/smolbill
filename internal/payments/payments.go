@@ -44,6 +44,13 @@ type Processor interface {
 	// provably never disagree" — it catches drift the processor introduced
 	// (a tax line, a rounding rule, a manual edit) that an internal ledger can't.
 	FetchInvoice(ctx context.Context, externalID string) (FetchedInvoice, error)
+	// ChargeInvoice attempts to collect payment for an already-pushed invoice (an
+	// off-session retry — the heart of dunning). A declined card is NOT a transport
+	// error: it returns ChargeResult{Status:"failed", FailureReason: …} with a nil
+	// error so the dunning engine can route by reason. err is non-nil only for a
+	// genuine transport/processor fault (network, 5xx) where retrying the CALL —
+	// not the card — is the right move.
+	ChargeInvoice(ctx context.Context, externalID string) (ChargeResult, error)
 }
 
 // FetchedInvoice is what a processor reports it actually billed, in integer
@@ -52,4 +59,13 @@ type FetchedInvoice struct {
 	AmountMinor int64
 	Currency    string
 	Status      string
+}
+
+// ChargeResult is the outcome of a collection attempt. Status is "paid" or
+// "failed"; FailureReason carries the processor's decline code (e.g.
+// "insufficient_funds", "expired_card", "authentication_required") so dunning can
+// decide whether a retry could ever succeed.
+type ChargeResult struct {
+	Status        string
+	FailureReason string
 }

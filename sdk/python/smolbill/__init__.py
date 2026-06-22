@@ -75,6 +75,7 @@ class Smolbill:
         self.alerts = _Alerts(self)
         self.webhooks = _Webhooks(self)
         self.wallet = _Wallet(self)
+        self.dunning = _Dunning(self)
 
     def _headers(self) -> dict[str, str]:
         h = {"Content-Type": "application/json"}
@@ -198,6 +199,14 @@ class _Invoices:
     def verify(self, invoice_id: str) -> dict[str, Any]:
         return self._c._verdict(f"/v1/invoices/{urllib.parse.quote(invoice_id)}/verify")
 
+    def collect(self, invoice_id: str) -> Any:
+        """Attempt collection of an unpaid invoice now (manual dunning trigger)."""
+        return self._c._request("POST", f"/v1/invoices/{urllib.parse.quote(invoice_id)}/collect")
+
+    def collection(self, invoice_id: str) -> Any:
+        """Inspect the dunning/recovery state of an invoice."""
+        return self._c._request("GET", f"/v1/invoices/{urllib.parse.quote(invoice_id)}/collection")
+
 
 class _Entitlements:
     def __init__(self, c: Smolbill) -> None:
@@ -246,3 +255,12 @@ class _Wallet:
 
     def get(self, customer_id: str) -> Any:
         return self._c._request("GET", f"/v1/wallet/{urllib.parse.quote(customer_id)}")
+
+
+class _Dunning:
+    def __init__(self, c: Smolbill) -> None:
+        self._c = c
+
+    def run(self) -> Any:
+        """Process every due collection — the endpoint a cron hits on a cadence."""
+        return self._c._request("POST", "/v1/dunning/run")

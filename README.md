@@ -19,6 +19,7 @@ A single static binary (Postgres, or in-memory for zero-setup) that gives you:
 - **A from-the-ground-up AI sandbox** — your agent (Claude/Cursor) configures billing by passing *intent* over MCP, and can **simulate a pricing change against your real usage** (`/v1/invoices/simulate`) before committing a thing. The deterministic engine does every cent; the model never touches the math.
 - **The Stripe rail, decoupled** — invoicing/charges only, behind a processor-agnostic interface. smolbill never holds funds or becomes a Merchant of Record, so a processor freeze can't take down your billing logic.
 - **A free embeddable customer portal + wallet** — the feature others charge ~$1,500/mo for, in the OSS core.
+- **Decline-aware dunning** — failed-payment recovery with a *transparent, configurable* retry cadence (not a black box) that routes by decline reason: soft declines retry on a research-grounded schedule, a dead card or an SCA challenge stops immediately instead of burning attempts. This is the capability Lago gates behind a premium license (email sales) and Chargebee behind a ~$250/mo add-on — here in Apache-2.0.
 - Flat-priced, **never a percent of your revenue.** Apache-2.0, not AGPL.
 
 Money math is integer-precise decimals (never floats) and rounds toward under-billing. The HTTP API and the MCP server compute through one shared engine, so a human and an agent can never get different numbers.
@@ -62,6 +63,9 @@ docker compose up
 | `POST` | `/v1/invoices/finalize` | materialize invoice + persist the reconciliation ledger |
 | `GET`  | `/v1/reconcile/{invoice_id}` | **THE HEADLINE** — prove the invoice still agrees with the live event log |
 | `GET`  | `/v1/invoices/{invoice_id}/verify` | **cross-boundary** — prove the ledger equals what the payment processor actually billed (any processor) |
+| `POST` | `/v1/invoices/{invoice_id}/collect` | **dunning** — attempt collection now (manual retry, e.g. after a card update) |
+| `GET`  | `/v1/invoices/{invoice_id}/collection` | inspect recovery state: every attempt, the decline reason, the next retry time |
+| `POST` | `/v1/dunning/run` | process every **due** collection — the endpoint a cron hits on a cadence |
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |
@@ -145,7 +149,8 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Reconcile** (`internal/reconcile`) — pure diff of stored ledger vs. live recompute; the proof behind `/v1/reconcile`.
 - **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, `stripe` thin client (exact cents, idempotency), `fake` test double.
 - **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
-- **Webhooks** (`internal/webhook`) — signed (HMAC-SHA256, `X-Smolbill-Signature`) outbound delivery of lifecycle events (`invoice.finalized`, `drift.detected`); fired on finalize and on every drift the reconciler catches, best-effort so a slow endpoint never blocks billing.
+- **Webhooks** (`internal/webhook`) — signed (HMAC-SHA256, `X-Smolbill-Signature`) outbound delivery of lifecycle events (`invoice.finalized`, `drift.detected`, plus the dunning events below); fired on finalize and on every drift the reconciler catches, best-effort so a slow endpoint never blocks billing.
+- **Dunning** (`internal/dunning`) — the pure failed-payment-recovery state machine: a configurable retry `Schedule` (default +2h/+1d/+3d/+5d/+7d, grounded in Recurly's 40M-transaction data) and decline-reason routing (`Classify`) so hard declines and SCA challenges stop instead of retrying. Drives `invoice.payment_failed` / `invoice.recovered` / `invoice.action_required` / `invoice.uncollectible` webhooks. No clock of its own — every transition is unit-tested.
 - **Web** (`internal/api/web.go` + `templates/`) — server-rendered dashboard, reconcile view, and embeddable customer portal; HTML embedded via `go:embed` (single binary).
 - **Engine** (`internal/engine`) — shared compute + plan-building used by both the REST API and the MCP server, so the two can never disagree.
 - **MCP** (`internal/mcp`) — intent-only MCP server over stdio (no SDK); the agent sets rules, never touches money math.

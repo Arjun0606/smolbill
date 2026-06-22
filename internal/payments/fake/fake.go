@@ -14,19 +14,24 @@ import (
 
 // Processor is a recording test double.
 type Processor struct {
-	mu       sync.Mutex
-	byKey    map[string]payments.PushResult     // idempotency_key -> result
-	byID     map[string]payments.FetchedInvoice // external id -> what it "billed"
-	Pushes   []payments.PushRequest             // every call, in order
-	FailWith error                              // if set, PushInvoice returns this
-	seq      int
+	mu          sync.Mutex
+	byKey       map[string]payments.PushResult     // idempotency_key -> result
+	byID        map[string]payments.FetchedInvoice // external id -> what it "billed"
+	chargeQueue map[string][]payments.ChargeResult // external id -> programmed charge outcomes
+	ChargeCalls map[string]int                     // external id -> attempts made
+	Pushes      []payments.PushRequest             // every call, in order
+	FailWith    error                              // if set, PushInvoice returns this
+	ChargeFault error                              // if set, ChargeInvoice returns this as a transport error
+	seq         int
 }
 
 // New returns an empty fake processor.
 func New() *Processor {
 	return &Processor{
-		byKey: map[string]payments.PushResult{},
-		byID:  map[string]payments.FetchedInvoice{},
+		byKey:       map[string]payments.PushResult{},
+		byID:        map[string]payments.FetchedInvoice{},
+		chargeQueue: map[string][]payments.ChargeResult{},
+		ChargeCalls: map[string]int{},
 	}
 }
 
@@ -69,6 +74,41 @@ func (p *Processor) FetchInvoice(_ context.Context, externalID string) (payments
 		return payments.FetchedInvoice{}, fmt.Errorf("fake: no invoice %q", externalID)
 	}
 	return fi, nil
+}
+
+// ChargeInvoice pops the next programmed outcome for an external id (default:
+// paid, if none programmed) and marks the invoice paid on success. A decline is
+// returned as a ChargeResult, not an error — matching real processors.
+func (p *Processor) ChargeInvoice(_ context.Context, externalID string) (payments.ChargeResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ChargeFault != nil {
+		return payments.ChargeResult{}, p.ChargeFault
+	}
+	if _, ok := p.byID[externalID]; !ok {
+		return payments.ChargeResult{}, fmt.Errorf("fake: no invoice %q", externalID)
+	}
+	p.ChargeCalls[externalID]++
+	res := payments.ChargeResult{Status: "paid"}
+	if q := p.chargeQueue[externalID]; len(q) > 0 {
+		res = q[0]
+		p.chargeQueue[externalID] = q[1:]
+	}
+	if res.Status == "paid" {
+		fi := p.byID[externalID]
+		fi.Status = "paid"
+		p.byID[externalID] = fi
+	}
+	return res, nil
+}
+
+// ProgramCharges queues the outcomes ChargeInvoice will return for an external id,
+// in order — so a test can script "fail, fail, then succeed" (recovery) or a hard
+// decline. Once the queue drains, ChargeInvoice defaults to paid.
+func (p *Processor) ProgramCharges(externalID string, outcomes ...payments.ChargeResult) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.chargeQueue[externalID] = append(p.chargeQueue[externalID], outcomes...)
 }
 
 // Tamper rewrites the amount the fake reports for an external id — simulating a
