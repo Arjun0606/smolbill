@@ -100,13 +100,20 @@ Both expose typed, signature-verifying webhook handling (`verifyWebhook` / `veri
 
 ### MCP server (AI sets the rule)
 
-`smolbill mcp` serves a Model Context Protocol server over stdio so an agent (Claude, Cursor) can configure billing in plain language:
+Connect an agent (Claude, Cursor) in **one command** — `npx`, not a hand-edited path:
 
 ```jsonc
 // claude_desktop_config.json
-{ "mcpServers": { "smolbill": { "command": "smolbill", "args": ["mcp"],
-    "env": { "DATABASE_URL": "postgres://…" } } } }
+{ "mcpServers": { "smolbill": { "command": "npx", "args": ["-y", "smolbill-mcp"],
+    "env": { "DATABASE_URL": "postgres://…" } } } }   // omit DATABASE_URL for in-memory
 ```
+
+Then just **say what you want** and it's done:
+
+> *"set up usage billing for my AI app — $0.001 per token with a $20 monthly base"*
+
+The agent calls `quickstart_billing` and you have a working plan + a previewable
+invoice in one step. (Raw binary still works: `smolbill mcp`. See [sdk/mcp](sdk/mcp).)
 
 The agent can drive **every feature**, not just setup — the intended path is **connect your agent and run your billing by talking** (for purists, every tool has a REST endpoint and SDK call too):
 

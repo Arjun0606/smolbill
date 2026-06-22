@@ -1,0 +1,11 @@
+{
+  "name": "smolbill-mcp",
+  "version": "0.1.0",
+  "description": "One-command MCP server for smolbill — connect your AI agent (Claude, Cursor) to your usage billing and set it all up by talking.",
+  "type": "module",
+  "bin": { "smolbill-mcp": "bin.js" },
+  "files": ["bin.js", "README.md"],
+  "engines": { "node": ">=18" },
+  "keywords": ["mcp", "billing", "usage-based", "smolbill", "ai", "claude"],
+  "license": "Apache-2.0"
+}

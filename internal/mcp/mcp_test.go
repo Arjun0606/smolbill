@@ -302,6 +302,34 @@ func TestProcessorToolsNeedRail(t *testing.T) {
 	}
 }
 
+// TestQuickstartBillingByAI proves the "extremely easy" path: one call goes from
+// an empty account to a working plan + a demo customer you can immediately bill.
+func TestQuickstartBillingByAI(t *testing.T) {
+	s, _ := newSession(t)
+
+	// get_started on an empty account guides toward the one-step setup.
+	if g, _ := s.callTool("get_started", nil); !strings.Contains(g, "quickstart_billing") {
+		t.Fatalf("get_started on empty account should mention quickstart_billing: %q", g)
+	}
+
+	// One call sets up everything.
+	out, isErr := s.callTool("quickstart_billing", map[string]any{
+		"product_name": "Acme AI", "meter_code": "tokens", "property_key": "n",
+		"unit_price": "0.001", "base_fee": "20",
+	})
+	if isErr {
+		t.Fatalf("quickstart_billing errored: %s", out)
+	}
+	demoCust := extractID(t, out, "demo customer ")
+
+	// Record usage for the demo customer and preview — 5000 tokens + $20 base = $25.
+	s.callTool("record_usage", map[string]any{"idempotency_key": "q1", "customer_id": demoCust, "meter_code": "tokens", "properties": map[string]any{"n": 5000}})
+	prev, isErr := s.callTool("preview_invoice", map[string]any{"customer_id": demoCust})
+	if isErr || !strings.Contains(prev, "Total: $25.00") {
+		t.Fatalf("preview after quickstart = %q, want Total: $25.00", prev)
+	}
+}
+
 func TestToolErrorIsInResultNotRPCError(t *testing.T) {
 	s, _ := newSession(t)
 	text, isErr := s.callTool("get_usage", map[string]any{"customer_id": "nobody"})

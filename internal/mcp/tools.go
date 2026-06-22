@@ -251,6 +251,26 @@ func (s *Server) buildTools() []tool {
 			inputSchema: obj(map[string]any{}),
 			handler:     s.runDunningTool,
 		},
+		{
+			name:        "get_started",
+			description: "Orient yourself on a new connection: returns the account state and the recommended next step. On an empty account it explains the one-step setup. Call this first.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.getStartedTool,
+		},
+		{
+			name:        "quickstart_billing",
+			description: "Set up working usage billing in ONE step from a plain description — the fastest path from zero to a real bill. Creates a meter, a plan (optional flat base + a per-unit price), and a demo customer you can preview immediately. Everything has sensible defaults; at minimum just call it with no arguments. Prefer this over wiring create_meter/create_plan/attach_plan by hand when a user says 'set up billing'.",
+			inputSchema: obj(map[string]any{
+				"product_name":       str("your product's name; default 'My App'"),
+				"meter_code":         str("what you meter, e.g. 'tokens' or 'api_calls'; default 'usage'"),
+				"property_key":       str("the event property to sum, e.g. 'n'; default 'units'"),
+				"unit_price":         str("price per unit as a decimal string; default '0.001'"),
+				"base_fee":           str("optional flat monthly base as a decimal string; default '0' (none)"),
+				"currency":           str("ISO-4217; default 'USD'"),
+				"with_demo_customer": map[string]any{"type": "boolean", "description": "also create a demo customer + subscription to preview immediately; default true"},
+			}),
+			handler: s.quickstartBillingTool,
+		},
 	}
 }
 
@@ -757,6 +777,129 @@ func nilTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+func (s *Server) getStartedTool(_ context.Context, _ json.RawMessage) (string, error) {
+	customers, err := s.store.ListCustomers()
+	if err != nil {
+		return "", err
+	}
+	meters, err := s.store.Meters()
+	if err != nil {
+		return "", err
+	}
+	if len(customers) == 0 && len(meters) == 0 {
+		return "Welcome to smolbill. Your account is empty.\n" +
+			"Fastest path: tell me about your product and I'll set it up in one step with quickstart_billing " +
+			"(e.g. \"meter tokens at $0.001 each with a $20 base\").\n" +
+			"Or build it piece by piece: create_customer → create_meter → create_plan → attach_plan.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Account state: %d customer(s), %d meter(s) defined.\n", len(customers), len(meters))
+	b.WriteString("Next: record_usage to meter activity, get_usage / preview_invoice to see a bill, " +
+		"finalize_invoice to materialize it, get_analytics for the account view.")
+	return b.String(), nil
+}
+
+// quickstartBillingTool is the "extremely easy" path: one call sets up a working
+// billing configuration from a plain description, with sensible defaults for
+// everything, so an agent can go from "set up billing for my app" to a real
+// previewable invoice without wiring four tools by hand.
+func (s *Server) quickstartBillingTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		ProductName      string `json:"product_name"`
+		MeterCode        string `json:"meter_code"`
+		PropertyKey      string `json:"property_key"`
+		UnitPrice        string `json:"unit_price"`
+		BaseFee          string `json:"base_fee"`
+		Currency         string `json:"currency"`
+		WithDemoCustomer *bool  `json:"with_demo_customer"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &a); err != nil {
+			return "", fmt.Errorf("invalid arguments: %w", err)
+		}
+	}
+	if a.ProductName == "" {
+		a.ProductName = "My App"
+	}
+	if a.MeterCode == "" {
+		a.MeterCode = "usage"
+	}
+	if a.PropertyKey == "" {
+		a.PropertyKey = "units"
+	}
+	if a.UnitPrice == "" {
+		a.UnitPrice = "0.001"
+	}
+	if a.Currency == "" {
+		a.Currency = "USD"
+	}
+	withDemo := true
+	if a.WithDemoCustomer != nil {
+		withDemo = *a.WithDemoCustomer
+	}
+	if _, err := decimal.NewFromString(a.UnitPrice); err != nil {
+		return "", fmt.Errorf("unit_price must be a decimal string")
+	}
+	hasBase := a.BaseFee != "" && a.BaseFee != "0"
+	if hasBase {
+		if _, err := decimal.NewFromString(a.BaseFee); err != nil {
+			return "", fmt.Errorf("base_fee must be a decimal string")
+		}
+	}
+
+	m := domain.Meter{
+		ID: id.New("mtr"), Code: a.MeterCode, Name: a.ProductName + " " + a.MeterCode,
+		Aggregation: domain.AggSum, PropertyKey: a.PropertyKey, CreatedAt: s.now(),
+	}
+	if err := s.store.PutMeter(m); err != nil {
+		return "", err
+	}
+
+	prices := make([]engine.PriceInput, 0, 2)
+	if hasBase {
+		prices = append(prices, engine.PriceInput{Model: "flat", Currency: a.Currency, FlatAmount: a.BaseFee})
+	}
+	prices = append(prices, engine.PriceInput{Model: "per_unit", Currency: a.Currency, MeterCode: a.MeterCode, UnitAmount: a.UnitPrice})
+	plan, err := engine.BuildPlan(engine.PlanInput{Name: a.ProductName + " plan", Prices: prices})
+	if err != nil {
+		return "", err
+	}
+	plan.CreatedAt = s.now()
+	if err := s.store.PutPlan(plan); err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Billing is set up for %s:\n", a.ProductName)
+	fmt.Fprintf(&b, "  • meter %q (sum of '%s')\n", a.MeterCode, a.PropertyKey)
+	if hasBase {
+		fmt.Fprintf(&b, "  • plan %s: %s %s base + %s %s per %s\n", plan.ID, a.BaseFee, a.Currency, a.UnitPrice, a.Currency, a.MeterCode)
+	} else {
+		fmt.Fprintf(&b, "  • plan %s: %s %s per %s\n", plan.ID, a.UnitPrice, a.Currency, a.MeterCode)
+	}
+
+	if withDemo {
+		cust := domain.Customer{ID: id.New("cus"), Name: "Demo (" + a.ProductName + ")", CreatedAt: s.now()}
+		if err := s.store.PutCustomer(cust); err != nil {
+			return "", err
+		}
+		start, end, _ := s.resolvePeriod("", "")
+		sub := domain.Subscription{
+			ID: id.New("sub"), CustomerID: cust.ID, PlanID: plan.ID, PlanVersion: plan.Version,
+			Status: domain.SubActive, CurrentPeriodStart: start, CurrentPeriodEnd: end, StartedAt: start,
+		}
+		if err := s.store.PutSubscription(sub); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  • demo customer %s on the plan (subscription %s)\n", cust.ID, sub.ID)
+		fmt.Fprintf(&b, "\nTry it now: record_usage for %s on meter %q (e.g. {\"%s\": 1000}), then preview_invoice to see the bill.",
+			cust.ID, a.MeterCode, a.PropertyKey)
+	} else {
+		b.WriteString("\nNext: create_customer, then attach_plan to put them on this plan.")
+	}
+	return b.String(), nil
 }
 
 // --- handlers (intent in; the engine/store does the work) ---
