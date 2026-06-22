@@ -75,6 +75,24 @@ docker compose up
 | `GET`  | `/portal/{customer_id}` | **free embeddable customer portal** (usage, bill, wallet) |
 | `GET`  | `/healthz` | liveness |
 
+### SDKs (TypeScript + Python)
+
+Official, **dependency-free** clients in [`sdk/typescript`](sdk/typescript) and [`sdk/python`](sdk/python). Five lines to a metered bill:
+
+```ts
+const sb = new Smolbill({ baseUrl: "http://localhost:8080" });
+const cus = await sb.customers.create({ name: "Acme AI" });
+await sb.events.ingest({ idempotency_key: "req-1", customer_id: cus.id, meter_code: "tokens", properties: { n: 1000 } });
+```
+
+Both expose typed, signature-verifying webhook handling (`verifyWebhook` / `verify_webhook`) for the signed `invoice.finalized` and `drift.detected` deliveries. Three guarantees keep them honest:
+
+- **Snake_case 1:1 with the wire** — no field-mapping layer to drift (the same choice Stripe's SDK makes).
+- **A drift guard** — [`sdk/routes.json`](sdk/routes.json) is the contract the SDKs implement, and a Go test (`TestRoutesMatchSDKManifest`) fails if the server ever registers a route the manifest doesn't list, so a new endpoint can't ship without the clients catching up.
+- **A cross-language signing test** — Go, TypeScript, and Python all assert the **same golden HMAC digests**, proving a webhook signed by the server verifies identically in every client.
+
+`sdk/test-e2e.sh` boots a real binary and drives the full billing lifecycle through both SDKs.
+
 ### MCP server (AI sets the rule)
 
 `smolbill mcp` serves a Model Context Protocol server over stdio so an agent (Claude, Cursor) can configure billing in plain language:

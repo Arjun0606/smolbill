@@ -1,0 +1,26 @@
+{
+  "name": "smolbill",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for smolbill — the open-source, provably-correct usage billing engine.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "test:unit": "node --test --experimental-strip-types test/webhook.test.ts"
+  },
+  "engines": { "node": ">=20" },
+  "keywords": ["billing", "usage-based", "metering", "invoicing", "smolbill"],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

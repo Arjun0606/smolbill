@@ -1,0 +1,24 @@
+{
+  "_comment": "Canonical list of smolbill's API surface — the contract the SDKs implement. internal/api/routes_manifest_test.go asserts this EXACTLY matches the routes the server registers (excluding the server-rendered /dashboard and /portal HTML). If that test fails, the API surface changed: update this file AND the TS/Python SDKs to match. This is the drift guard that keeps the clients honest.",
+  "routes": [
+    { "method": "GET",  "path": "/healthz",                        "ts": "health",                "py": "health" },
+    { "method": "POST", "path": "/v1/customers",                   "ts": "customers.create",      "py": "customers.create" },
+    { "method": "POST", "path": "/v1/meters",                      "ts": "meters.create",         "py": "meters.create" },
+    { "method": "POST", "path": "/v1/plans",                       "ts": "plans.create",          "py": "plans.create" },
+    { "method": "POST", "path": "/v1/subscriptions",               "ts": "subscriptions.create",  "py": "subscriptions.create" },
+    { "method": "POST", "path": "/v1/events",                      "ts": "events.ingest",         "py": "events.ingest" },
+    { "method": "GET",  "path": "/v1/usage/{customer_id}",         "ts": "usage.get",             "py": "usage.get" },
+    { "method": "POST", "path": "/v1/invoices/preview",            "ts": "invoices.preview",      "py": "invoices.preview" },
+    { "method": "POST", "path": "/v1/invoices/simulate",           "ts": "invoices.simulate",     "py": "invoices.simulate" },
+    { "method": "POST", "path": "/v1/invoices/finalize",           "ts": "invoices.finalize",     "py": "invoices.finalize" },
+    { "method": "GET",  "path": "/v1/reconcile/{invoice_id}",      "ts": "invoices.reconcile",    "py": "invoices.reconcile" },
+    { "method": "GET",  "path": "/v1/invoices/{invoice_id}/verify","ts": "invoices.verify",       "py": "invoices.verify" },
+    { "method": "POST", "path": "/v1/entitlements",                "ts": "entitlements.create",   "py": "entitlements.create" },
+    { "method": "GET",  "path": "/v1/entitlements/{customer_id}",  "ts": "entitlements.get",      "py": "entitlements.get" },
+    { "method": "POST", "path": "/v1/alerts",                      "ts": "alerts.create",         "py": "alerts.create" },
+    { "method": "POST", "path": "/v1/webhooks",                    "ts": "webhooks.create",       "py": "webhooks.create" },
+    { "method": "GET",  "path": "/v1/webhooks",                    "ts": "webhooks.list",         "py": "webhooks.list" },
+    { "method": "POST", "path": "/v1/wallet/{customer_id}/topup",  "ts": "wallet.topup",          "py": "wallet.topup" },
+    { "method": "GET",  "path": "/v1/wallet/{customer_id}",        "ts": "wallet.get",            "py": "wallet.get" }
+  ]
+}

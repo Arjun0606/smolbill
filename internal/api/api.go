@@ -13,6 +13,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -23,6 +24,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/ingest"
 	"github.com/Arjun0606/smolbill/internal/invoice"
+	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/store"
 	"github.com/Arjun0606/smolbill/internal/webhook"
@@ -85,15 +87,7 @@ func (s *Server) emit(eventType string, data map[string]any) {
 // subscribedTo reports whether a webhook wants this event type. An empty Events
 // slice means "all events" (subscribe to everything).
 func subscribedTo(h domain.Webhook, eventType string) bool {
-	if len(h.Events) == 0 {
-		return true
-	}
-	for _, e := range h.Events {
-		if e == eventType {
-			return true
-		}
-	}
-	return false
+	return len(h.Events) == 0 || slices.Contains(h.Events, eventType)
 }
 
 // Handler returns the routed http.Handler for the whole /v1 surface.
@@ -383,7 +377,7 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 		"period_start":    sub.CurrentPeriodStart,
 		"period_end":      sub.CurrentPeriodEnd,
 		"usage":           usages,
-		"projected_total": res.Invoice.Total.StringFixed(2),
+		"projected_total": money.Format(res.Invoice.Total, res.Invoice.Currency),
 		"currency":        res.Invoice.Currency,
 	}
 	if !asOf.IsZero() {
@@ -446,7 +440,35 @@ func (s *Server) simulateInvoice(w http.ResponseWriter, r *http.Request) {
 		s.writeComputeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, simulationResponse(res))
+}
+
+// simulationResponse renders a sandbox result with every money field formatted to
+// the currency's minor unit (like every other endpoint), so the API is uniformly
+// "64.00", never a raw "64".
+func simulationResponse(res engine.SimulationResult) map[string]any {
+	cur := res.Currency
+	lines := make([]map[string]any, 0, len(res.Lines))
+	for _, l := range res.Lines {
+		lines = append(lines, map[string]any{
+			"meter_code":      l.MeterCode,
+			"current_amount":  money.Format(l.CurrentAmount, cur),
+			"proposed_amount": money.Format(l.ProposedAmount, cur),
+			"delta":           money.Format(l.Delta, cur),
+		})
+	}
+	return map[string]any{
+		"customer_id":    res.CustomerID,
+		"period_start":   res.PeriodStart,
+		"period_end":     res.PeriodEnd,
+		"currency":       cur,
+		"current_total":  money.Format(res.CurrentTotal, cur),
+		"proposed_total": money.Format(res.ProposedTotal, cur),
+		"delta":          money.Format(res.Delta, cur),
+		"lines":          lines,
+		"current_hash":   res.CurrentHash,
+		"proposed_hash":  res.ProposedHash,
+	}
 }
 
 // --- shared computation ---
@@ -484,7 +506,7 @@ func invoiceResponse(res invoice.Result) map[string]any {
 		lines = append(lines, line{
 			MeterCode: tr.MeterCode, Model: string(tr.PriceModel), RawEventCount: tr.RawEventCount,
 			Quantity: tr.MeterValue.String(), ProrationFactor: tr.ProrationFactor.String(),
-			Amount: tr.Amount.StringFixed(2),
+			Amount: money.Format(tr.Amount, res.Invoice.Currency),
 		})
 	}
 	return map[string]any{
@@ -492,7 +514,7 @@ func invoiceResponse(res invoice.Result) map[string]any {
 		"period_start": res.Invoice.PeriodStart,
 		"period_end":   res.Invoice.PeriodEnd,
 		"lines":        lines,
-		"total":        res.Invoice.Total.StringFixed(2),
+		"total":        money.Format(res.Invoice.Total, res.Invoice.Currency),
 		"currency":     res.Invoice.Currency,
 		"hash":         res.Hash, // verification hash; basis for the reconciliation ledger
 	}

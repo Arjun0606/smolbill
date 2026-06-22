@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "smolbill"
+version = "0.1.0"
+description = "Python SDK for smolbill — the open-source, provably-correct usage billing engine."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+keywords = ["billing", "usage-based", "metering", "invoicing", "smolbill"]
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["smolbill"]

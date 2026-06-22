@@ -127,6 +127,20 @@ func (a Amount) String() string {
 	return a.val.StringFixed(MinorUnitExponent(a.currency)) + " " + a.currency
 }
 
+// Amount renders just the numeric value, fixed to the currency's minor unit and
+// with no currency suffix — the canonical form for money in API JSON. Using this
+// everywhere keeps every endpoint consistent and correct per currency: "64.00"
+// for USD, "64" for JPY (0 decimals), "64.000" for BHD (3 decimals).
+func (a Amount) Amount() string {
+	return a.val.StringFixed(MinorUnitExponent(a.currency))
+}
+
+// Format is the package-level convenience: render a decimal as a currency-correct
+// JSON money string. Format(d, "USD") == "64.00".
+func Format(val decimal.Decimal, currency string) string {
+	return New(val, currency).Amount()
+}
+
 // MinorUnits returns the amount as an integer count of the currency's smallest
 // unit (e.g. cents) — the form payment processors like Stripe require. The
 // amount should already be RoundDown'd to the minor unit; any residual fraction

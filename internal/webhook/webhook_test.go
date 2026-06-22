@@ -27,6 +27,23 @@ func TestSignDeterministicAndVerifiable(t *testing.T) {
 	}
 }
 
+// TestSignGoldenValues locks the wire format: these exact hex digests are
+// asserted byte-for-byte by the TypeScript and Python SDK test suites too, so all
+// three languages provably agree on how a webhook is signed. Changing the signing
+// algorithm breaks this test (and the cross-language contract) on purpose.
+func TestSignGoldenValues(t *testing.T) {
+	const eventBody = `{"id":"evt_1","type":"invoice.finalized","occurred_at":"1970-01-01T00:00:00Z","data":{"invoice_id":"inv_1"}}`
+	cases := []struct{ secret, body, want string }{
+		{"whsec_test", eventBody, "5863bd53484af21871b474ad7bc43be865f97d840768001f6ceee4050cd9cce2"},
+		{"s", "hello", "8a06a64224d83d1bf0a2140fab7d5b462cf3f450592c7963910ed331e9031056"},
+	}
+	for _, c := range cases {
+		if got := Sign(c.secret, []byte(c.body)); got != c.want {
+			t.Errorf("Sign(%q, %q) = %s, want %s", c.secret, c.body, got, c.want)
+		}
+	}
+}
+
 // TestHTTPSenderDeliversSignedJSON proves the real transport POSTs a JSON event
 // whose body verifies against the X-Smolbill-Signature header — exactly what a
 // receiver's middleware would check.

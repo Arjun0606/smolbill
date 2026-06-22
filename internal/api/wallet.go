@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+
+	"github.com/Arjun0606/smolbill/internal/money"
 )
 
 // --- POST /v1/wallet/{customer_id}/topup ---
@@ -40,7 +42,7 @@ func (s *Server) topupWallet(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"customer_id": cid,
-		"balance":     wlt.Balance.StringFixed(2),
+		"balance":     money.Format(wlt.Balance, wlt.Currency),
 		"currency":    wlt.Currency,
 	})
 }
@@ -66,11 +68,11 @@ func (s *Server) getWallet(w http.ResponseWriter, r *http.Request) {
 	}
 	var out []txOut
 	for _, t := range txns {
-		out = append(out, txOut{t.Amount.StringFixed(2), t.Reason, t.CreatedAt.Format("2006-01-02T15:04:05Z07:00")})
+		out = append(out, txOut{money.Format(t.Amount, wlt.Currency), t.Reason, t.CreatedAt.Format("2006-01-02T15:04:05Z07:00")})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"customer_id":  cid,
-		"balance":      wlt.Balance.StringFixed(2),
+		"balance":      money.Format(wlt.Balance, wlt.Currency),
 		"currency":     wlt.Currency,
 		"transactions": out,
 	})

@@ -8,6 +8,31 @@ import (
 
 func d(s string) decimal.Decimal { v, _ := decimal.NewFromString(s); return v }
 
+// TestFormatIsCurrencyAware proves the JSON money formatter (used by every API
+// response) renders to the correct minor unit per currency — not a hardcoded 2
+// decimals, which would malform JPY/BHD amounts.
+func TestFormatIsCurrencyAware(t *testing.T) {
+	cases := []struct {
+		val, currency, want string
+	}{
+		{"64", "USD", "64.00"},   // 2 decimals
+		{"64.5", "USD", "64.50"}, // pads
+		{"64", "JPY", "64"},      // 0 decimals (yen has no minor unit)
+		{"64", "BHD", "64.000"},  // 3 decimals (Bahraini dinar)
+		{"0", "USD", "0.00"},
+		{"64", "", "64.00"}, // unknown currency defaults to 2
+	}
+	for _, c := range cases {
+		if got := Format(d(c.val), c.currency); got != c.want {
+			t.Errorf("Format(%s, %q) = %q, want %q", c.val, c.currency, got, c.want)
+		}
+		// Format must equal the Amount() method (the package func is just sugar).
+		if got := New(d(c.val), c.currency).Amount(); got != c.want {
+			t.Errorf("Amount() for (%s, %q) = %q, want %q", c.val, c.currency, got, c.want)
+		}
+	}
+}
+
 func TestMinorUnits(t *testing.T) {
 	cases := []struct {
 		val      string
