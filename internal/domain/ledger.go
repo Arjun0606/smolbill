@@ -12,16 +12,16 @@ import (
 // computed. The reconcile endpoint re-derives these from the live event log and
 // compares — any disagreement is surfaced (it can never silently drift).
 type LedgerRow struct {
-	ID                string
-	InvoiceID         string
-	MeterCode         string
-	RawEventCount     int
-	MeterValue        decimal.Decimal
-	InvoiceLineAmount decimal.Decimal
-	EntitlementState  map[string]any // optional snapshot; nil in v0
-	Diffs             []string       // non-empty => drift detected at compute time
-	ComputedHash      string         // the invoice-level verification hash
-	ComputedAt        time.Time
+	ID                string          `json:"id"`
+	InvoiceID         string          `json:"invoice_id"`
+	MeterCode         string          `json:"meter_code"`
+	RawEventCount     int             `json:"raw_event_count"`
+	MeterValue        decimal.Decimal `json:"meter_value"`
+	InvoiceLineAmount decimal.Decimal `json:"invoice_line_amount"`
+	EntitlementState  map[string]any  `json:"entitlement_state"` // optional snapshot; nil in v0
+	Diffs             []string        `json:"diffs"`             // non-empty => drift detected at compute time
+	ComputedHash      string          `json:"computed_hash"`     // the invoice-level verification hash
+	ComputedAt        time.Time       `json:"computed_at"`
 }
 
 // Alert is a proactive spend-alert config: fire WebhookURL when a customer's
@@ -29,13 +29,13 @@ type LedgerRow struct {
 // Budget. MaxFired is the high-water mark already notified, so each threshold
 // fires at most once per period (no alert spam).
 type Alert struct {
-	ID         string
-	CustomerID string
-	Budget     decimal.Decimal
-	Currency   string
-	Thresholds []int
-	WebhookURL string
-	MaxFired   int
+	ID         string          `json:"id"`
+	CustomerID string          `json:"customer_id"`
+	Budget     decimal.Decimal `json:"budget"`
+	Currency   string          `json:"currency"`
+	Thresholds []int           `json:"thresholds"`
+	WebhookURL string          `json:"webhook_url"`
+	MaxFired   int             `json:"max_fired"`
 }
 
 // EntitlementKind is whether an entitlement is an on/off feature flag or a
@@ -52,13 +52,13 @@ const (
 // log over [PeriodStart, PeriodEnd) via MeterCode — never trusted from a stored
 // counter that could drift.
 type Entitlement struct {
-	ID          string
-	CustomerID  string
-	Feature     string
-	Kind        EntitlementKind
-	MeterCode   string          // for metered: which meter measures usage
-	LimitValue  decimal.Decimal // for metered: the allowance
-	UsedValue   decimal.Decimal // derived live; persisted only as a cache
-	PeriodStart time.Time
-	PeriodEnd   time.Time
+	ID          string          `json:"id"`
+	CustomerID  string          `json:"customer_id"`
+	Feature     string          `json:"feature"`
+	Kind        EntitlementKind `json:"kind"`
+	MeterCode   string          `json:"meter_code"`  // for metered: which meter measures usage
+	LimitValue  decimal.Decimal `json:"limit_value"` // for metered: the allowance
+	UsedValue   decimal.Decimal `json:"used_value"`  // derived live; persisted only as a cache
+	PeriodStart time.Time       `json:"period_start"`
+	PeriodEnd   time.Time       `json:"period_end"`
 }

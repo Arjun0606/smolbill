@@ -22,7 +22,7 @@ func (h *serverHandle) getHTML(t *testing.T, path string) (int, string) {
 func TestWalletTopupIdempotent(t *testing.T) {
 	ts := newHandle(t)
 	_, cust := ts.post(t, "/v1/customers", map[string]any{"name": "Acme"})
-	cid := cust["ID"].(string)
+	cid := cust["id"].(string)
 
 	// First top-up: $50.
 	resp, body := ts.post(t, "/v1/wallet/"+cid+"/topup", map[string]any{
@@ -50,7 +50,7 @@ func TestWalletTopupIdempotent(t *testing.T) {
 func TestWalletCurrencyMismatchRejected(t *testing.T) {
 	ts := newHandle(t)
 	_, cust := ts.post(t, "/v1/customers", map[string]any{"name": "Acme"})
-	cid := cust["ID"].(string)
+	cid := cust["id"].(string)
 	ts.post(t, "/v1/wallet/"+cid+"/topup", map[string]any{"amount": "10.00", "currency": "USD", "idempotency_key": "a"})
 	resp, _ := ts.post(t, "/v1/wallet/"+cid+"/topup", map[string]any{"amount": "10.00", "currency": "EUR", "idempotency_key": "b"})
 	if resp.StatusCode != http.StatusBadRequest {

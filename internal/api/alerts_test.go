@@ -47,7 +47,7 @@ func newHandleWithNotifier(t *testing.T) (*serverHandle, *recordingNotifier) {
 func setupSubForAlerts(t *testing.T, ts *serverHandle) (custID string) {
 	t.Helper()
 	_, cust := ts.post(t, "/v1/customers", map[string]any{"name": "Acme"})
-	custID = cust["ID"].(string)
+	custID = cust["id"].(string)
 	ts.post(t, "/v1/meters", map[string]any{"code": "tokens", "name": "Tokens", "aggregation": "sum", "property_key": "n"})
 	_, plan := ts.post(t, "/v1/plans", map[string]any{
 		"name": "Pro", "prices": []map[string]any{
@@ -55,7 +55,7 @@ func setupSubForAlerts(t *testing.T, ts *serverHandle) (custID string) {
 		},
 	})
 	ts.post(t, "/v1/subscriptions", map[string]any{
-		"customer_id": custID, "plan_id": plan["ID"].(string),
+		"customer_id": custID, "plan_id": plan["id"].(string),
 		"period_start": "2026-06-01T00:00:00Z", "period_end": "2026-07-01T00:00:00Z",
 		"started_at": "2026-06-01T00:00:00Z",
 	})

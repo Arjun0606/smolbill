@@ -42,20 +42,20 @@ func (h *serverHandle) get(t *testing.T, path string) (*http.Response, map[strin
 func setupSubWithUsage(t *testing.T, ts *serverHandle, tokenEvents map[string]int) (custID, subID string) {
 	t.Helper()
 	_, cust := ts.post(t, "/v1/customers", map[string]any{"name": "Acme"})
-	custID = cust["ID"].(string)
+	custID = cust["id"].(string)
 	ts.post(t, "/v1/meters", map[string]any{"code": "tokens", "name": "Tokens", "aggregation": "sum", "property_key": "n"})
 	_, plan := ts.post(t, "/v1/plans", map[string]any{
 		"name": "Pro", "prices": []map[string]any{
 			{"model": "per_unit", "currency": "USD", "meter_code": "tokens", "unit_amount": "0.001"},
 		},
 	})
-	planID := plan["ID"].(string)
+	planID := plan["id"].(string)
 	_, sub := ts.post(t, "/v1/subscriptions", map[string]any{
 		"customer_id": custID, "plan_id": planID,
 		"period_start": "2026-06-01T00:00:00Z", "period_end": "2026-07-01T00:00:00Z",
 		"started_at": "2026-06-01T00:00:00Z",
 	})
-	subID = sub["ID"].(string)
+	subID = sub["id"].(string)
 	for key, n := range tokenEvents {
 		ts.post(t, "/v1/events", map[string]any{
 			"idempotency_key": key, "customer_id": custID, "meter_code": "tokens",

@@ -57,7 +57,7 @@ func TestEndToEndFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create customer status %d", resp.StatusCode)
 	}
-	custID := cust["ID"].(string)
+	custID := cust["id"].(string)
 
 	// Meter.
 	resp, _ = post(t, ts, "/v1/meters", map[string]any{
@@ -77,7 +77,7 @@ func TestEndToEndFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create plan status %d", resp.StatusCode)
 	}
-	planID := plan["ID"].(string)
+	planID := plan["id"].(string)
 
 	// Subscription, full period (no proration).
 	resp, sub := post(t, ts, "/v1/subscriptions", map[string]any{
@@ -88,7 +88,7 @@ func TestEndToEndFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create subscription status %d: %v", resp.StatusCode, sub)
 	}
-	subID := sub["ID"].(string)
+	subID := sub["id"].(string)
 
 	// Ingest 15000 tokens across two events.
 	for i, n := range []int{10000, 5000} {
