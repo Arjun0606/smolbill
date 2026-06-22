@@ -1,127 +1,327 @@
-# smolbill — UI design brief (for Stitch)
+# smolbill — complete UI design brief (for Stitch)
 
-Paste the **Product + Visual identity** blocks first to set context, then paste one
-**Screen** block at a time to generate each view.
+The full product, not a demo: ~75 screens across marketing, auth, onboarding, the
+app, settings, the embeddable customer portal, and system states.
+
+**How to use:** paste **Product**, **Visual identity**, and **Shared patterns** once to
+set context, then paste any screen's block to generate it. Screens marked ★ are the
+soul of the product — do those first.
 
 ---
 
 ## Product (context)
 
 smolbill is an open-source, developer-first **usage-based billing** platform for AI
-apps and solo developers. You meter usage (tokens, API calls, anything), turn it
-into correct invoices, and recover failed payments — without giving up a percent of
-your revenue or needing a finance team. Its signature is **provable correctness** (a
-reconciliation ledger proves your meter and your invoice never silently disagree)
-and being **AI-native**: you set up and run your whole billing by talking to an AI
-agent. The product should feel precise, trustworthy, and effortless — billing you
-can actually understand at a glance.
-
-Audience: technical founders and indie developers. Think the polish of Linear,
-Vercel, Stripe, and Supabase dashboards.
+apps and solo developers. You meter usage (tokens, API calls, anything), turn it into
+correct invoices, and recover failed payments — without giving up a percent of your
+revenue or needing a finance team. Its signature is **provable correctness** (a
+reconciliation ledger proves your meter and your invoice never silently disagree) and
+being **AI-native**: you set up and run your whole billing by talking to an AI agent.
+Audience: technical founders and indie devs. The polish of Linear, Vercel, Stripe,
+Supabase.
 
 ## Visual identity
 
-- **Mood:** modern developer tool. Calm, precise, trustworthy, a little "terminal."
-  Generous whitespace, nothing cluttered. Confidence through clarity, not decoration.
-- **Theme:** dark by default — a near-black charcoal background (#0B0D0C), elevated
-  panels in a slightly lighter charcoal (#121514), hairline borders (#1F2421).
-- **Accent:** a single vivid green (#54D98C) used sparingly for primary actions,
-  positive states, active nav, and key numbers. Never more than one accent.
-- **Text:** off-white (#E9EFE9) primary, muted sage-gray (#8A958C) secondary.
-- **Status colors:** green = healthy/paid/recovered, amber = retrying/at-risk,
-  red = drift/uncollectible/over-limit.
-- **Typography:** a clean geometric sans (Inter / Geist) for UI; a **monospace**
-  (JetBrains Mono / SF Mono) for all money amounts, IDs (cus_…, inv_…), hashes,
-  meter codes, and code snippets. Money and IDs in mono is a core part of the look.
-- **Components:** rounded-12px cards, subtle borders over shadows, small mono "pill"
-  tags for status, data-dense tables with comfortable row height, copyable IDs.
+- **Mood:** modern developer tool — calm, precise, trustworthy, a little "terminal."
+  Generous whitespace. Confidence through clarity, not decoration.
+- **Theme:** dark by default — near-black charcoal background (#0B0D0C), panels
+  #121514, hairline borders #1F2421. (Offer a light variant too: #FBFCFB bg, #FFFFFF
+  panels, #E6EAE7 borders, same green.)
+- **Accent:** one vivid green (#54D98C) for primary actions, positive states, active
+  nav, key numbers. Never more than one accent color.
+- **Text:** off-white #E9EFE9 primary, muted sage-gray #8A958C secondary.
+- **Status:** green=paid/recovered/healthy, amber=retrying/at-risk/pending,
+  red=drift/failed/uncollectible/over-limit, gray=draft/inactive.
+- **Type:** geometric sans (Inter/Geist) for UI; **monospace** (JetBrains Mono) for
+  all money, IDs (cus_…/inv_…), hashes, meter codes, code. Mono numbers are core.
+- **Components:** rounded-12px cards, hairline borders over shadows, small mono status
+  pills, data-dense but airy tables, copyable IDs, keyboard-first.
+
+## Shared patterns (apply to every app screen)
+
+- **App shell:** slim left sidebar — workspace switcher at top; nav: Overview,
+  Customers, Subscriptions, Invoices, Plans & Meters, Usage, Dunning, Analytics,
+  Developers, Settings; a green "● AI connected" status and the user avatar at the
+  bottom. Top bar: breadcrumb, a ⌘K search, a bell (notifications), a green "+ New".
+- **Tables:** comfortable rows, mono for IDs/amounts, status pills, row hover, a
+  right-aligned "⋯" action menu, pagination, column sort, a filter bar.
+- **Detail pages:** header with title + copyable mono id + status pill + actions;
+  tabs below; content in cards.
+- **Create/edit:** a right-side **drawer** with a form, primary green button.
+- **Every list has:** an empty state (icon + one line + a green CTA), a loading
+  skeleton, and an error state.
 
 ---
 
-## Screen 1 — Dashboard home (overview)
+# A. Marketing / public
 
-A billing command center. Top: a row of 4 stat cards — **Projected revenue this
-period**, **Active subscriptions**, **Finalized revenue (MTD)**, **At-risk (dunning)**
-— each a big mono number with a small label and a tiny trend sparkline. Below, two
-columns: left, a **Recent activity** feed (invoices finalized, payments recovered,
-drift detected, each with a status pill and timestamp); right, a **Recovery** panel
-showing a donut of dunning outcomes (retrying / recovered / written off) and the
-recovery-rate percentage. A slim left sidebar nav: Overview, Customers, Invoices,
-Plans, Dunning, Analytics, Settings — with a small green "Connected to AI" indicator
-at the bottom. Top bar: workspace name, search, and a green "+ New" button.
+**A1. Landing / home ★** — Dark hero: headline *"Usage billing for AI apps and solo
+devs. Never a percent of your revenue."* subhead, a green "Star on GitHub" + ghost
+"Get the hosted beta." A terminal code block (`go run ./cmd/smolbill quickstart` + a
+3-line SDK snippet). A comparison strip (Stripe 0.7% · Lago/Orb/Zuora need a finance
+team · smolbill flat + open source). A 4-card "why" grid (never a %, provably correct,
+AI-native, free dunning). Logos/social proof row. Footer.
 
-## Screen 2 — Customer detail
+**A2. Pricing** — 3 tiers (Self-host $0 · Cloud flat+usage · Scale "talk to us") as
+cards, the middle one green-bordered "popular." A feature comparison table below. An
+FAQ accordion. CTA band.
 
-Header: customer name, a copyable mono `cus_…` id, and their plan as a pill. A row
-of small cards: **current projected bill**, **wallet balance**, **status**. Tabs:
-**Usage**, **Invoices**, **Entitlements**, **Wallet**, **Activity**. The Usage tab
-shows a live per-meter breakdown (meter code in mono, quantity, amount) and a
-projected total. The Entitlements tab shows each feature with a usage bar (used /
-limit) — green within limit, red over. Clean, scannable, data-dense but airy.
+**A3. Docs home** — left doc-nav tree, a search, a getting-started grid of cards
+(Quickstart, SDKs, MCP, Reconciliation, Dunning), right-side "on this page" TOC.
 
-## Screen 3 — Invoice + reconciliation (the hero)
+**A4. Docs article** — the doc-nav + a long-form article with code blocks (copy
+buttons), callout boxes, and prev/next links.
 
-The signature screen. Top: invoice header (mono `inv_…`, customer, period, a big
-mono **total**, a status pill). The line items in a table: meter code, quantity,
-unit price, amount — all mono. Then the **Reconciliation** panel — the proof. A large
-verdict banner: green **"Consistent — meter and invoice provably agree"** with a
-checkmark and the verification hash in mono, OR a red **"Drift detected"** banner
-showing, line by line, stored vs live (e.g. "raw events 1 → 2", "total 3.00 → 8.00")
-with the deltas highlighted. This panel is the emotional core: it should feel like
-proof, like a receipt you can trust. Include a subtle "Verify against processor"
-secondary button.
+**A5. Changelog** — a vertical timeline of dated releases with tags (feature/fix),
+each entry a short note. Quiet, scannable.
 
-## Screen 4 — Dunning / recovery
+**A6. Status page** — overall "All systems operational" banner (green), a list of
+components (API, Dashboard, MCP, Webhooks) each with an uptime bar, and an incident
+history list.
 
-A table of collections (invoices in recovery): customer, amount (mono), a status pill
-(scheduled / retrying / requires action / recovered / uncollectible with the right
-status color), attempts, and **next retry** time. Click a row to expand a **retry
-timeline** — a vertical stepper showing each attempt, its result, and the decline
-reason, with the upcoming retry dimmed. A side panel: the **message template editor**
-— a subject field, a body textarea with `{{.CustomerName}}` style chips, and a **live
-preview** card beside it rendering the email exactly as the customer will see it.
-Emphasize "you own this copy" — it's editable and previewable.
+**A7. 404 / error (public)** — minimal, on-brand, a mono "404" + one line + a button
+home.
 
-## Screen 5 — Connect AI (the setup magic)
+**A8. Legal** — clean long-form terms/privacy layout with a section nav.
 
-The "extremely easy" screen. Centered, minimal. A headline: **"Set up billing by
-talking."** A code block showing the one-line MCP config (`npx -y smolbill-mcp`) with
-a copy button. Below it, a faux chat exchange illustrating the magic: a user bubble
-*"set up usage billing for my AI app, $0.001 a token with a $20 base"* and an
-assistant bubble confirming it created the meter, plan, and a demo customer, with the
-resulting IDs as mono pills. A green "Open in Claude / Cursor" button. Feels like the
-future — billing configured in a sentence.
+# B. Auth
 
-## Screen 6 — Plans & meters (pricing config)
+**B1. Sign up** — centered card on dark: email + password (or "Continue with GitHub /
+Google" buttons first), a green "Create account," a link to sign in. Left side (on
+wide screens) a subtle product value-prop panel.
 
-Two sections. **Meters:** cards showing each meter (code in mono, aggregation type,
-the property it sums). **Plans:** cards for each plan showing the price components
-(flat base + per-unit, or tiers) in a clean mono layout, with a version tag. A green
-"+ Create plan" button opens a side drawer with a simple form (name, prices, pricing
-model as a segmented control: flat / per-unit / tiered). Calm and structured.
+**B2. Sign in** — same card: email + password, "Continue with GitHub/Google," forgot
+link, green "Sign in."
 
-## Screen 7 — Analytics
+**B3. Magic link sent** — a calm "Check your email" card with an envelope icon and a
+"resend" link.
 
-Revenue and recovery over time. A big area chart of revenue (projected vs finalized),
-a breakdown of revenue by currency, and a **dunning recovery** section: recovery rate,
-amount at risk vs recovered, and recovery-by-decline-reason as a horizontal bar list.
-All figures mono. Clean, BI-grade but not busy — the four numbers a founder checks.
+**B4. Forgot password** — email field + "Send reset link."
 
-## Screen 8 — Landing page (marketing)
+**B5. Reset password** — new password + confirm, strength meter.
 
-Hero on the dark theme: headline **"Usage billing for AI apps and solo devs. Never a
-percent of your revenue."** Subhead about metering usage and sending correct invoices
-with no sales call. Two buttons: a green "Star on GitHub" and a ghost "Get the hosted
-beta." Below the hero, a terminal-style code block (`go run ./cmd/smolbill
-quickstart` and a 3-line SDK snippet). Then a comparison strip ("Stripe Billing takes
-0.7% · Lago/Orb/Zuora need a finance team · smolbill is flat-priced and open source")
-and a 4-card "why" grid (never a %, provably correct, AI-native, free dunning). A
-simple 3-tier pricing section (Self-host $0 / Cloud flat+usage / Scale). Confident,
-spacious, developer-credible.
+**B6. Two-factor verify** — a 6-digit code input (segmented), "verify," a "use a
+backup code" link.
 
-## Screen 9 — Customer portal (embeddable)
+**B7. SSO sign-in (enterprise)** — a single "Sign in with your company" / SAML domain
+field.
 
-A clean, minimal view a customer sees: their current usage by meter, projected bill
-(big mono total), wallet balance, and entitlement limits with usage bars. A subtle
-"metered by smolbill" footer. Light, simple, trustworthy — this is shown to *their*
-customers, so it should feel calm and white-glove.
+**B8. Accept invite** — "You've been invited to {workspace}" card with the inviter,
+role pill, and a green "Accept & join."
+
+**B9. Verify email** — confirmation success/failure state.
+
+# C. Onboarding
+
+**C1. Welcome / create workspace** — "Name your workspace," currency default, a green
+"Continue." A progress indicator (step 1 of 4).
+
+**C2. Connect your AI agent ★** — "Set up billing by talking." A copyable one-line MCP
+config block (`npx -y smolbill-mcp`), buttons "Open in Claude / Cursor," and a faux
+chat showing a user saying *"set up usage billing, $0.001/token + $20 base"* and the
+agent confirming it created the meter, plan, and a demo customer (IDs as mono pills).
+
+**C3. Connect a payment processor** — cards for Stripe and Dodo, each with a "Connect"
+button; a "skip for now (local-only)" link. Shows connected state with a green check.
+
+**C4. Quickstart your billing** — a simple form mirroring quickstart_billing (product
+name, what you meter, unit price, optional base) with a live "this is the plan you'll
+get" preview card; or a "do it by talking instead" toggle to C2.
+
+**C5. Invite your team** — email chips + role select, "send invites," "skip."
+
+**C6. Onboarding checklist / you're set** — a checklist card (create workspace ✓,
+connect AI ✓, set up billing ✓, connect processor ○, invite team ○) with a green
+"Go to dashboard."
+
+# D. Core app
+
+**D1. Dashboard home (overview) ★** — 4 stat cards (Projected revenue this period ·
+Active subscriptions · Finalized revenue MTD · At-risk in dunning), each a big mono
+number + label + tiny sparkline. Two columns: a **Recent activity** feed (invoice
+finalized / payment recovered / drift detected / over-limit, each with a status pill +
+timestamp), and a **Recovery** panel (donut of retrying/recovered/written-off + the
+recovery-rate %). A slim "set up" checklist if onboarding is incomplete.
+
+**D2. Command palette (⌘K overlay)** — a centered search overlay: fuzzy search across
+customers, invoices, plans + quick actions ("Create customer", "Run dunning",
+"Preview invoice"), keyboard-navigable, mono ids.
+
+**D3. Notifications panel** — a right-side slide-over: grouped notifications (drift
+detected, payment recovered, dunning needs action) with read/unread, "mark all read."
+
+# E. Customers
+
+**E1. Customers list** — table: name, mono `cus_…` (copyable), plan pill, current
+projected bill (mono), status, created. Filter bar + search + "+ New customer." Empty
+state with a green CTA.
+
+**E2. Customer detail ★** — header (name, copyable id, plan pill); small cards
+(current projected bill, wallet balance, status). Tabs: **Usage** (per-meter
+breakdown, mono qty + amount, projected total), **Invoices** (their invoice list),
+**Entitlements** (each feature with a used/limit usage bar — green within, red over),
+**Wallet** (balance + transactions), **Activity** (timeline).
+
+**E3. Create customer (drawer)** — name + optional external id, green "Create."
+
+# F. Subscriptions
+
+**F1. Subscriptions list** — table: customer, plan + version, status pill, current
+period, next renewal.
+
+**F2. Subscription detail** — plan + period, a "change plan" action that opens the
+**simulate** sandbox (see H4), proration preview, cancel (with a confirm dialog).
+
+# G. Plans, meters, entitlements
+
+**G1. Meters list** — cards/table: meter code (mono), name, aggregation (count/sum/
+max/unique), the property it sums.
+
+**G2. Meter create/detail (drawer)** — code, name, aggregation segmented control,
+property key.
+
+**G3. Plans list** — cards per plan: name + version tag, the price components (flat
+base + per-unit / tiers) in mono, "n subscribers."
+
+**G4. Plan builder (create/edit) ★** — a clean form: name; a price list where each row
+is a pricing model (segmented: flat / per-unit / tiered-graduated / tiered-volume),
+currency, amount(s); for tiered, an editable tier ladder (up-to + unit price rows). A
+live "example bill at X units" preview on the right.
+
+**G5. Entitlements management** — per customer or global: feature name, kind
+(boolean/metered), linked meter, limit, with a usage bar for metered ones.
+
+# H. Usage, invoices, sandbox
+
+**H1. Usage explorer / event log** — a searchable, filterable stream of raw usage
+events: timestamp, customer, meter, properties (mono JSON), idempotency key. Filter by
+customer/meter/time. This is the audit-grade raw log.
+
+**H2. Invoices list** — table: mono `inv_…`, customer, period, total (mono), status
+pill (draft/finalized/paid), a reconcile indicator (green check / red drift).
+
+**H3. Invoice + reconciliation detail ★★ (the hero)** — header (mono id, customer,
+period, big mono total, status pill). Line items table (meter code, qty, unit price,
+amount — all mono). Then the **Reconciliation** panel: a large verdict banner — green
+*"Consistent — meter and invoice provably agree"* with a check + the verification hash
+in mono, OR red *"Drift detected"* showing line-by-line stored→live (e.g. "raw events
+1 → 2", "total 3.00 → 8.00") with deltas highlighted. A secondary "Verify against
+processor" button. This screen must feel like proof.
+
+**H4. Preview / simulate (sandbox) ★** — pick a customer, edit a proposed plan, and
+see a **side-by-side diff**: current bill vs proposed, per line, with deltas in
+green/red and a "nothing is committed" reassurance. The "prove a price change is safe"
+screen.
+
+**H5. Reconciliation history / audit log** — a list of every reconcile/verify run with
+its verdict + timestamp, filterable, for compliance/audit.
+
+# I. Dunning / recovery
+
+**I1. Dunning dashboard ★** — collections table: customer, amount (mono), status pill
+(scheduled/retrying/requires-action/recovered/uncollectible in the right colors),
+attempts, next retry time. Top: small cards (at-risk total, recovered MTD, recovery
+rate). A "Run dunning now" action.
+
+**I2. Collection detail / retry timeline** — a vertical stepper of each attempt (result
++ decline reason), the upcoming retry dimmed with its scheduled time, and the
+decline-routing note (e.g. "hard decline → stopped, awaiting card update").
+
+**I3. Dunning template editor ★** — left: a list of the 4 events
+(payment_failed/requires_action/recovered/uncollectible). Selected: a subject field +
+a body textarea with insertable field chips ({{.CustomerName}}, {{.Amount}}, …). Right:
+a **live email preview** card rendering exactly what the customer sees. "Reset to
+default" + a "customized" badge. Emphasize *you own this copy*.
+
+**I4. Recovery analytics** — recovery rate over time, amount at-risk vs recovered, and
+recovery-by-decline-reason as a horizontal bar list.
+
+# J. Wallet / credits
+
+**J1. Wallet management** — per customer: balance (big mono), a transaction ledger
+(credits/debits, reason, date), a green "Top up" button.
+
+**J2. Top-up (drawer)** — amount + currency + reason, idempotency handled, confirm.
+
+# K. Developers
+
+**K1. API keys** — table of keys (name, masked key, created, last used), "+ Create
+key" → a one-time-reveal modal with a copy button + warning.
+
+**K2. Webhooks list** — endpoints (url, subscribed events as pills, status), "+ Add
+endpoint."
+
+**K3. Webhook create/edit (drawer)** — url + event multi-select + the signing secret
+(revealed once).
+
+**K4. Webhook delivery log ★** — per endpoint: a table of recent deliveries (event
+type, response code, timestamp), each expandable to the signed payload (mono JSON) +
+headers, with a "resend" button. The thing every dev wishes Stripe did better.
+
+**K5. SDKs & MCP** — a page with copyable install snippets (npm/pip, the MCP `npx`
+line) and links to docs.
+
+# L. Analytics
+
+**L1. Analytics overview ★** — a big area chart (projected vs finalized revenue over
+time), revenue-by-currency breakdown, top customers by spend, and the dunning recovery
+summary. Mono figures, BI-grade but calm — the numbers a founder checks.
+
+# M. Settings
+
+**M1. Account / profile** — name, email, avatar, password, 2FA toggle.
+
+**M2. Workspace / general** — workspace name, default currency, timezone, logo.
+
+**M3. Team & roles (RBAC)** — members table (avatar, email, role select
+owner/admin/member, status), pending invites, "+ Invite."
+
+**M4. Payment processor** — connected processor (Stripe/Dodo) with status, keys
+(masked), "test connection," switch/disconnect.
+
+**M5. Your smolbill billing ★** — the dogfood screen: the workspace's *own* smolbill
+Cloud subscription (plan, this month's usage metered by smolbill itself, the running
+flat+usage total), invoice history, and the payment method (via Dodo). Literally
+smolbill billing you, shown to you.
+
+**M6. Notifications preferences** — toggles for which events email/notify you.
+
+**M7. Danger zone** — export data, delete workspace (typed-confirm dialog).
+
+# N. Customer portal (embeddable, customer-facing — calm, white-glove, light-friendly)
+
+**N1. Portal — usage & bill ★** — the customer sees their current usage by meter,
+projected bill (big mono total), and period. Minimal, trustworthy, a subtle "metered
+by smolbill" footer.
+
+**N2. Portal — update payment method ★** — the card-update page the dunning emails link
+to. A clean card form (or processor element), reassuring copy ("update to keep your
+account active"). Must always work — it's the recovery lynchpin.
+
+**N3. Portal — invoices & history** — their past invoices, downloadable.
+
+**N4. Portal — wallet** — their prepaid balance + transactions.
+
+# O. System states (design these as variants)
+
+**O1. Empty states** — for each list (no customers / no invoices / no webhooks): a
+centered icon, one friendly line, a green CTA, and a "or set it up by talking" hint.
+
+**O2. Loading skeletons** — shimmer placeholders matching each layout (cards, tables,
+detail headers).
+
+**O3. Error / permission states** — 404 (in-app), 500, "you don't have access," and a
+generic "something went wrong — retry," all on-brand.
+
+**O4. Maintenance** — a calm full-page notice.
+
+---
+
+## Build order (suggested)
+
+1. **H3 Invoice+reconciliation**, **C2/Connect-AI**, **I3 template editor** — the soul.
+2. **D1 dashboard**, **E2 customer detail**, **I1 dunning**, **L1 analytics** — the spine.
+3. **B1/B2 auth**, **C1–C6 onboarding**, **M-section settings** — the frame.
+4. **N portal**, **K developers**, **A marketing**, **O states** — the edges.
+
+Keep the shell + identity identical across all of them so it reads as one product.
