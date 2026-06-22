@@ -60,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/events", s.ingestEvent)
 	mux.HandleFunc("GET /v1/usage/{customer_id}", s.usage)
 	mux.HandleFunc("POST /v1/invoices/preview", s.previewInvoice)
+	mux.HandleFunc("POST /v1/invoices/simulate", s.simulateInvoice)
 	mux.HandleFunc("POST /v1/invoices/finalize", s.finalizeInvoice)
 	mux.HandleFunc("GET /v1/reconcile/{invoice_id}", s.reconcileInvoice)
 	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
@@ -347,6 +348,34 @@ func (s *Server) previewInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, invoiceResponse(res))
+}
+
+// simulateReq proposes a plan and asks what it WOULD bill the customer this
+// period, against their real usage. Nothing is persisted.
+type simulateReq struct {
+	CustomerID string           `json:"customer_id"`
+	Plan       engine.PlanInput `json:"plan"`
+}
+
+// simulateInvoice is the sandbox endpoint: replay the customer's real event log
+// against a proposed plan and return the diff vs their live bill, committing
+// nothing. The same engine that finalizes invoices computes the preview.
+func (s *Server) simulateInvoice(w http.ResponseWriter, r *http.Request) {
+	var req simulateReq
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.CustomerID == "" {
+		writeErr(w, http.StatusBadRequest, "customer_id required")
+		return
+	}
+	res, err := engine.SimulatePlanChange(s.store, req.CustomerID, req.Plan)
+	if err != nil {
+		s.writeComputeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // --- shared computation ---

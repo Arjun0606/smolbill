@@ -104,6 +104,18 @@ func (s *Server) buildTools() []tool {
 			inputSchema: obj(map[string]any{"customer_id": str("customer id")}, "customer_id"),
 			handler:     s.previewInvoice,
 		},
+		{
+			name:        "simulate_plan_change",
+			description: "Sandbox: replay a customer's REAL usage this period against a PROPOSED plan and diff it against their live bill. Nothing is committed and no money moves — this is how you prove a pricing change is safe before applying it. The same deterministic engine that finalizes invoices computes the preview.",
+			inputSchema: obj(map[string]any{
+				"customer_id": str("customer id"),
+				"plan": map[string]any{
+					"type":        "object",
+					"description": "proposed plan: {name, version, prices:[{meter_code, model(flat|per_unit|tiered_graduated|tiered_volume), currency, unit_amount, flat_amount, tiers:[{up_to, unit_amount, flat_amount}]}]}",
+				},
+			}, "customer_id", "plan"),
+			handler: s.simulatePlanChange,
+		},
 	}
 }
 
@@ -271,6 +283,34 @@ func (s *Server) previewInvoice(_ context.Context, args json.RawMessage) (string
 	}
 	fmt.Fprintf(&b, "Total: $%s %s\nVerification hash: %s\n(No money moved — this is a deterministic preview.)",
 		res.Invoice.Total.StringFixed(2), res.Invoice.Currency, res.Hash)
+	return b.String(), nil
+}
+
+func (s *Server) simulatePlanChange(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		CustomerID string           `json:"customer_id"`
+		Plan       engine.PlanInput `json:"plan"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", err
+	}
+	res, err := engine.SimulatePlanChange(s.store, a.CustomerID, a.Plan)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Simulation for %s — period %s → %s (nothing committed)\n",
+		res.CustomerID, res.PeriodStart.Format("2006-01-02"), res.PeriodEnd.Format("2006-01-02"))
+	for _, l := range res.Lines {
+		code := l.MeterCode
+		if code == "" {
+			code = "(base fee)"
+		}
+		fmt.Fprintf(&b, "  • %s — now $%s, proposed $%s (delta $%s)\n",
+			code, l.CurrentAmount.StringFixed(2), l.ProposedAmount.StringFixed(2), l.Delta.StringFixed(2))
+	}
+	fmt.Fprintf(&b, "Current total $%s -> proposed $%s, a change of $%s %s\n(No money moved, no config changed — this is a deterministic sandbox preview.)",
+		res.CurrentTotal.StringFixed(2), res.ProposedTotal.StringFixed(2), res.Delta.StringFixed(2), res.Currency)
 	return b.String(), nil
 }
 

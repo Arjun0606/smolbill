@@ -8,6 +8,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -130,4 +131,107 @@ func parseDecOr0(s string) decimal.Decimal {
 		return decimal.Zero
 	}
 	return d
+}
+
+// --- simulate-against-history (the AI-native sandbox primitive) ---
+//
+// An agent proposes a pricing change; smolbill replays the customer's REAL event
+// log for the current period against the proposed plan and diffs it against what
+// they're billed today. Nothing is persisted. This is how a change is proven safe
+// before it is ever committed — the sandbox the incumbents can't bolt on.
+
+// LineDelta is the per-meter difference between the current and proposed bill.
+type LineDelta struct {
+	MeterCode      string          `json:"meter_code"`
+	CurrentAmount  decimal.Decimal `json:"current_amount"`
+	ProposedAmount decimal.Decimal `json:"proposed_amount"`
+	Delta          decimal.Decimal `json:"delta"`
+}
+
+// SimulationResult is what a proposed plan WOULD bill against the customer's real
+// usage this period, next to what they are billed today. Persists nothing.
+type SimulationResult struct {
+	CustomerID    string          `json:"customer_id"`
+	PeriodStart   time.Time       `json:"period_start"`
+	PeriodEnd     time.Time       `json:"period_end"`
+	Currency      string          `json:"currency"`
+	CurrentTotal  decimal.Decimal `json:"current_total"`
+	ProposedTotal decimal.Decimal `json:"proposed_total"`
+	Delta         decimal.Decimal `json:"delta"` // proposed - current
+	Lines         []LineDelta     `json:"lines"`
+	CurrentHash   string          `json:"current_hash"`
+	ProposedHash  string          `json:"proposed_hash"`
+}
+
+// SimulatePlanChange computes what `proposed` would bill the customer for the
+// current period — replayed against their real event log — and diffs it against
+// their live plan. It writes nothing to the store; the same deterministic engine
+// that finalizes invoices computes the preview, so the simulation can't disagree
+// with what a real switch would produce.
+func SimulatePlanChange(st store.Store, customerID string, proposed PlanInput) (SimulationResult, error) {
+	current, sub, err := ComputeForActiveSub(st, customerID)
+	if err != nil {
+		return SimulationResult{}, err
+	}
+	proposedPlan, err := BuildPlan(proposed)
+	if err != nil {
+		return SimulationResult{}, err
+	}
+	// The proposed plan is a hypothetical version of THIS subscription's plan, so
+	// it carries the sub's plan identity — the engine's plan/sub guard then treats
+	// it as a legitimate re-pricing of the same subscription.
+	proposedPlan.ID = sub.PlanID
+	proposedPlan.Version = sub.PlanVersion
+	meters, err := st.Meters()
+	if err != nil {
+		return SimulationResult{}, err
+	}
+	events, err := st.EventsForCustomer(sub.CustomerID)
+	if err != nil {
+		return SimulationResult{}, err
+	}
+	proposedRes, err := invoice.Calculate(sub, proposedPlan, meters, events)
+	if err != nil {
+		return SimulationResult{}, err
+	}
+	return diffInvoices(customerID, current, proposedRes), nil
+}
+
+// diffInvoices builds the per-meter and total deltas between two computed bills.
+func diffInvoices(customerID string, current, proposed invoice.Result) SimulationResult {
+	byCode := map[string]*LineDelta{}
+	order := []string{}
+	get := func(code string) *LineDelta {
+		if d, ok := byCode[code]; ok {
+			return d
+		}
+		d := &LineDelta{MeterCode: code, CurrentAmount: decimal.Zero, ProposedAmount: decimal.Zero}
+		byCode[code] = d
+		order = append(order, code)
+		return d
+	}
+	for _, l := range current.Invoice.Lines {
+		get(l.MeterCode).CurrentAmount = l.Amount
+	}
+	for _, l := range proposed.Invoice.Lines {
+		get(l.MeterCode).ProposedAmount = l.Amount
+	}
+	lines := make([]LineDelta, 0, len(order))
+	for _, code := range order {
+		d := byCode[code]
+		d.Delta = d.ProposedAmount.Sub(d.CurrentAmount)
+		lines = append(lines, *d)
+	}
+	return SimulationResult{
+		CustomerID:    customerID,
+		PeriodStart:   current.Invoice.PeriodStart,
+		PeriodEnd:     current.Invoice.PeriodEnd,
+		Currency:      current.Invoice.Currency,
+		CurrentTotal:  current.Invoice.Total,
+		ProposedTotal: proposed.Invoice.Total,
+		Delta:         proposed.Invoice.Total.Sub(current.Invoice.Total),
+		Lines:         lines,
+		CurrentHash:   current.Hash,
+		ProposedHash:  proposed.Hash,
+	}
 }
