@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,34 @@ func TestAcceptStoresEvent(t *testing.T) {
 	evs, _ := st.EventsForCustomer("cus_1")
 	if n := len(evs); n != 1 {
 		t.Fatalf("stored events = %d, want 1", n)
+	}
+}
+
+// TestConcurrentDuplicateNeverDoubleCounts is the adversarial one: it fires the
+// same idempotency_key from many goroutines at once and tries to make the meter
+// double-count. Exactly one event may land — anything more is a double-bill.
+// Run under -race. This is the proof behind the README's "if you can make the
+// meter and the invoice disagree, i want to know."
+func TestConcurrentDuplicateNeverDoubleCounts(t *testing.T) {
+	st := memory.New()
+	ing := New(st, 0)
+	now := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	ev := goodEvent("same-key", now)
+
+	const N = 64
+	var wg sync.WaitGroup
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		go func() {
+			defer wg.Done()
+			_, _ = ing.Accept(ev, now) // duplicate-or-success: both are fine
+		}()
+	}
+	wg.Wait()
+
+	evs, _ := st.EventsForCustomer("cus_1")
+	if n := len(evs); n != 1 {
+		t.Fatalf("concurrent same-key ingest stored %d events — want exactly 1 (double-bill race!)", n)
 	}
 }
 

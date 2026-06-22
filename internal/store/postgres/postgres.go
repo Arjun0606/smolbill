@@ -75,9 +75,14 @@ func (s *Store) AppendEvent(e domain.Event) error {
 	if err != nil {
 		return fmt.Errorf("postgres: marshal properties: %w", err)
 	}
+	// ON CONFLICT makes a concurrent duplicate (two retries with the same
+	// idempotency_key racing past SeenKey) a clean idempotent no-op instead of a
+	// raw unique-violation error — the same guarantee the wallet ledger gets, and
+	// the backstop that keeps the meter from double-counting under concurrency.
 	_, err = s.pool.Exec(s.ctx,
 		`INSERT INTO events (id, idempotency_key, customer_id, meter_code, event_time, properties, ingested_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)
+		 ON CONFLICT (idempotency_key) DO NOTHING`,
 		e.ID, e.IdempotencyKey, e.CustomerID, e.MeterCode, e.EventTime, props, e.IngestedAt,
 	)
 	if err != nil {

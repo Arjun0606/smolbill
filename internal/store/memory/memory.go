@@ -66,8 +66,20 @@ func (s *Store) SeenKey(key string, now time.Time, window time.Duration) (bool, 
 func (s *Store) AppendEvent(e domain.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Idempotent on a non-empty key under one lock: if two concurrent retries
+	// both passed SeenKey (a separate RLock) before either appended, only the
+	// first records the event. Without this guard the check-then-act race would
+	// double-count and therefore double-bill. The real ingester always supplies a
+	// key (Accept requires it); a keyless direct append is a seed/test convenience
+	// and is never deduped. Postgres gets the same guarantee from its
+	// UNIQUE(idempotency_key) constraint + ON CONFLICT DO NOTHING.
+	if e.IdempotencyKey != "" {
+		if _, dup := s.seenKeys[e.IdempotencyKey]; dup {
+			return nil
+		}
+		s.seenKeys[e.IdempotencyKey] = e.IngestedAt
+	}
 	s.events = append(s.events, e)
-	s.seenKeys[e.IdempotencyKey] = e.IngestedAt
 	return nil
 }
 

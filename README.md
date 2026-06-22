@@ -10,9 +10,18 @@ Single binary, Postgres-only, flat-priced, on top of Stripe, never a Merchant of
 
 ---
 
-## Status: Phase 1 core + Postgres + HTTP API (done)
+## What it does
 
-The provably-correct math layer is complete and runs as a real service: a single binary serving a `/v1` REST API, backed by Postgres (or in-memory for zero-setup). No Stripe or MCP yet — those are Phases 3 and 5.
+A single static binary (Postgres, or in-memory for zero-setup) that gives you:
+
+- **Provably-correct metering** — idempotent event ingest with a documented dedup window; late and out-of-order events re-rate correctly instead of silently being wrong.
+- **A reconciliation ledger** — `GET /v1/reconcile/{invoice}` recomputes the invoice from the live event log and tells you, line by line, if anything drifted (200 if consistent, 409 + a diff if not).
+- **A from-the-ground-up AI sandbox** — your agent (Claude/Cursor) configures billing by passing *intent* over MCP, and can **simulate a pricing change against your real usage** (`/v1/invoices/simulate`) before committing a thing. The deterministic engine does every cent; the model never touches the math.
+- **The Stripe rail, decoupled** — invoicing/charges only, behind a processor-agnostic interface. smolbill never holds funds or becomes a Merchant of Record, so a processor freeze can't take down your billing logic.
+- **A free embeddable customer portal + wallet** — the feature others charge ~$1,500/mo for, in the OSS core.
+- Flat-priced, **never a percent of your revenue.** Apache-2.0, not AGPL.
+
+Money math is integer-precise decimals (never floats) and rounds toward under-billing. The HTTP API and the MCP server compute through one shared engine, so a human and an agent can never get different numbers.
 
 ### Quickstart
 
@@ -39,6 +48,7 @@ docker compose up
 | `POST` | `/v1/events` | **idempotent** usage ingest (dedup on `idempotency_key`) |
 | `GET`  | `/v1/usage/{customer_id}` | real-time usage + projected bill |
 | `POST` | `/v1/invoices/preview` | **deterministic** exact invoice + verification hash |
+| `POST` | `/v1/invoices/simulate` | **sandbox** — replay real usage against a *proposed* plan, diff vs the live bill, commit nothing |
 | `POST` | `/v1/invoices/finalize` | materialize invoice + persist the reconciliation ledger |
 | `GET`  | `/v1/reconcile/{invoice_id}` | **THE HEADLINE** — prove the invoice still agrees with the live event log |
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |

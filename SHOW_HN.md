@@ -47,6 +47,14 @@ attach_plan). there is no charge() or calculate_bill() tool. the deterministic
 engine does every cent. a hallucinated decimal in billing ends a business
 relationship, so the model never touches the arithmetic.
 
+the part i'm most happy with: you can simulate a pricing change against your real
+usage before you commit it. POST /v1/invoices/simulate (or ask the agent) replays
+this period's actual events against a proposed plan and shows you, line by line,
+what the bill would have been vs what it is now. it writes nothing. it runs
+through the exact same engine that finalizes real invoices, so the simulation
+can't disagree with what an actual switch would do. it's the thing i wished
+existed every time i was scared to touch pricing.
+
 what it does NOT do (on purpose): no merchant-of-record, no tax, no asc 606
 rev-rec, no kafka/clickhouse, no enterprise sso. the simplicity is the point.
 
