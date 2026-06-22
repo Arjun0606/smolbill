@@ -156,3 +156,12 @@ CREATE TABLE IF NOT EXISTS alerts (
     max_fired   INT NOT NULL DEFAULT 0,  -- high-water mark of fired thresholds
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 6: outbound event webhooks (invoice.finalized, drift.detected).
+CREATE TABLE IF NOT EXISTS webhooks (
+    id         TEXT PRIMARY KEY,
+    url        TEXT NOT NULL,
+    events     JSONB NOT NULL DEFAULT '[]'::jsonb, -- subscribed event types; [] = all
+    secret     TEXT NOT NULL,                      -- HMAC-SHA256 signing secret
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

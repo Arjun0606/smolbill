@@ -587,6 +587,48 @@ func (s *Store) UpdateAlertFired(alertID string, maxFired int) error {
 	return nil
 }
 
+// --- webhooks ---
+
+func (s *Store) PutWebhook(wh domain.Webhook) error {
+	if wh.ID == "" {
+		wh.ID = id.New("wh")
+	}
+	events, err := json.Marshal(wh.Events)
+	if err != nil {
+		return fmt.Errorf("postgres: marshal webhook events: %w", err)
+	}
+	_, err = s.pool.Exec(s.ctx,
+		`INSERT INTO webhooks (id, url, events, secret) VALUES ($1,$2,$3,$4)
+		 ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url, events = EXCLUDED.events`,
+		wh.ID, wh.URL, events, wh.Secret)
+	if err != nil {
+		return fmt.Errorf("postgres: PutWebhook: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) Webhooks() ([]domain.Webhook, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, url, events, secret, created_at FROM webhooks ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: Webhooks: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Webhook
+	for rows.Next() {
+		var wh domain.Webhook
+		var events []byte
+		if err := rows.Scan(&wh.ID, &wh.URL, &events, &wh.Secret, &wh.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan webhook: %w", err)
+		}
+		if len(events) > 0 {
+			_ = json.Unmarshal(events, &wh.Events)
+		}
+		out = append(out, wh)
+	}
+	return out, rows.Err()
+}
+
 // --- wallet ---
 
 func (s *Store) Wallet(customerID string) (domain.Wallet, bool, error) {

@@ -8,8 +8,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/invoice"
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/store"
+	"github.com/Arjun0606/smolbill/internal/webhook"
 )
 
 // Server holds the dependencies of the HTTP layer.
@@ -32,6 +35,7 @@ type Server struct {
 	now      func() time.Time   // injectable clock for deterministic tests
 	proc     payments.Processor // optional payment rail; nil => finalize is local-only
 	notifier alerts.Notifier    // spend-alert delivery
+	whSender webhook.Sender     // outbound lifecycle-event delivery
 }
 
 // New builds a Server. A nil clock defaults to time.Now (UTC).
@@ -39,7 +43,7 @@ func New(st store.Store, ing *ingest.Ingester, clock func() time.Time) *Server {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
-	return &Server{store: st, ing: ing, now: clock, notifier: alerts.NewWebhookNotifier()}
+	return &Server{store: st, ing: ing, now: clock, notifier: alerts.NewWebhookNotifier(), whSender: webhook.NewHTTPSender()}
 }
 
 // SetProcessor attaches a payment rail (e.g. Stripe). When set, finalize pushes
@@ -48,6 +52,49 @@ func (s *Server) SetProcessor(p payments.Processor) { s.proc = p }
 
 // SetNotifier overrides the spend-alert notifier (tests inject a recorder).
 func (s *Server) SetNotifier(n alerts.Notifier) { s.notifier = n }
+
+// SetWebhookSender overrides the webhook delivery transport (tests inject a recorder).
+func (s *Server) SetWebhookSender(snd webhook.Sender) { s.whSender = snd }
+
+// emit delivers a lifecycle event to every webhook subscribed to its type (or to
+// all events). It is best-effort: a failing endpoint is logged, never blocked on,
+// and never affects the billing operation that produced the event. Call sites
+// wrap this in a goroutine so webhook latency can't delay an API response.
+func (s *Server) emit(eventType string, data map[string]any) {
+	hooks, err := s.store.Webhooks()
+	if err != nil {
+		log.Printf("webhook: list failed: %v", err)
+		return
+	}
+	if len(hooks) == 0 {
+		return
+	}
+	ev := webhook.Event{ID: id.New("evt"), Type: eventType, OccurredAt: s.now(), Data: data}
+	for _, h := range hooks {
+		if !subscribedTo(h, eventType) {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := s.whSender.Send(ctx, h.URL, h.Secret, ev); err != nil {
+			log.Printf("webhook: deliver %s to %s failed: %v", eventType, h.URL, err)
+		}
+		cancel()
+	}
+}
+
+// subscribedTo reports whether a webhook wants this event type. An empty Events
+// slice means "all events" (subscribe to everything).
+func subscribedTo(h domain.Webhook, eventType string) bool {
+	if len(h.Events) == 0 {
+		return true
+	}
+	for _, e := range h.Events {
+		if e == eventType {
+			return true
+		}
+	}
+	return false
+}
 
 // Handler returns the routed http.Handler for the whole /v1 surface.
 func (s *Server) Handler() http.Handler {
@@ -67,6 +114,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
 	mux.HandleFunc("GET /v1/entitlements/{customer_id}", s.getEntitlements)
 	mux.HandleFunc("POST /v1/alerts", s.createAlert)
+	mux.HandleFunc("POST /v1/webhooks", s.createWebhook)
+	mux.HandleFunc("GET /v1/webhooks", s.listWebhooks)
 
 	// Wallet (free, OSS-core — the feature Lago charges ~$1,500/mo for).
 	mux.HandleFunc("POST /v1/wallet/{customer_id}/topup", s.topupWallet)

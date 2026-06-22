@@ -134,3 +134,15 @@ type InvoiceLine struct {
 	Amount    decimal.Decimal
 	LedgerRef string // links to the reconciliation ledger row
 }
+
+// Webhook is a registered HTTP endpoint that receives lifecycle events
+// (invoice.finalized, drift.detected). Each carries a signing secret so the
+// receiver can verify authenticity from the X-Smolbill-Signature HMAC header —
+// the same model Stripe and Lago use, in the OSS core.
+type Webhook struct {
+	ID        string
+	URL       string
+	Events    []string // event types subscribed to; empty slice = all events
+	Secret    string   // HMAC-SHA256 signing secret (returned once, on creation)
+	CreatedAt time.Time
+}

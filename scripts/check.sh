@@ -38,7 +38,7 @@ if have go; then
   if [ -n "${SMOLBILL_TEST_DATABASE_URL:-}" ]; then
     go test ./... -race >/dev/null 2>&1;                          gate $? "go test -race (incl. postgres)"
   else
-    go test "$(go list ./... | grep -v '/postgres')" -race >/dev/null 2>&1; gate $? "go test -race (postgres skipped — set SMOLBILL_TEST_DATABASE_URL)"
+    go list ./... | grep -v '/postgres' | xargs go test -race >/dev/null 2>&1; gate $? "go test -race (postgres skipped — set SMOLBILL_TEST_DATABASE_URL)"
   fi
 fi
 

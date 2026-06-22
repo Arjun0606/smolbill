@@ -65,6 +65,11 @@ type Store interface {
 	// UpdateAlertFired advances an alert's high-water mark of fired thresholds.
 	UpdateAlertFired(alertID string, maxFired int) error
 
+	// --- outbound webhooks (Phase 6) ---
+
+	PutWebhook(w domain.Webhook) error
+	Webhooks() ([]domain.Webhook, error)
+
 	// --- wallet (Phase 4) ---
 
 	// Wallet returns the customer's wallet, or ok=false if none exists yet.

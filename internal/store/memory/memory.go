@@ -31,6 +31,7 @@ type Store struct {
 	wallets      map[string]domain.Wallet              // customer_id -> wallet
 	walletTxns   map[string][]domain.WalletTransaction // customer_id -> txns
 	walletKeys   map[string]bool                       // wallet idempotency keys seen
+	webhooks     map[string]domain.Webhook             // keyed by id
 }
 
 // New returns an empty store.
@@ -48,6 +49,7 @@ func New() *Store {
 		wallets:      map[string]domain.Wallet{},
 		walletTxns:   map[string][]domain.WalletTransaction{},
 		walletKeys:   map[string]bool{},
+		webhooks:     map[string]domain.Webhook{},
 	}
 }
 
@@ -242,6 +244,28 @@ func (s *Store) UpdateAlertFired(alertID string, maxFired int) error {
 	a.MaxFired = maxFired
 	s.alerts[alertID] = a
 	return nil
+}
+
+// --- webhooks ---
+
+func (s *Store) PutWebhook(wh domain.Webhook) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if wh.ID == "" {
+		wh.ID = id.New("wh")
+	}
+	s.webhooks[wh.ID] = wh
+	return nil
+}
+
+func (s *Store) Webhooks() ([]domain.Webhook, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Webhook, 0, len(s.webhooks))
+	for _, wh := range s.webhooks {
+		out = append(out, wh)
+	}
+	return out, nil
 }
 
 // --- wallet ---

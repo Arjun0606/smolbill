@@ -74,6 +74,16 @@ func (s *Server) finalizeInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Notify subscribers the invoice is live. Fire-and-forget so a slow webhook
+	// endpoint never delays the finalize response.
+	go s.emit("invoice.finalized", map[string]any{
+		"invoice_id":  inv.ID,
+		"customer_id": inv.CustomerID,
+		"total":       inv.Total.String(),
+		"currency":    inv.Currency,
+		"status":      inv.Status,
+	})
+
 	resp := invoiceResponse(res)
 	resp["invoice_id"] = inv.ID
 	resp["status"] = inv.Status
@@ -119,8 +129,14 @@ func (s *Server) reconcileInvoice(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if !proof.Consistent {
 		// Surface drift loudly. The data is still served (200-family), but a
-		// distinct code lets monitoring alert on it.
+		// distinct code lets monitoring alert on it — and a webhook fires so the
+		// operator hears about it without polling the endpoint.
 		status = http.StatusConflict
+		go s.emit("drift.detected", map[string]any{
+			"invoice_id":   invID,
+			"scope":        "ledger",
+			"stored_total": storedInv.Total.String(),
+		})
 	}
 	writeJSON(w, status, proof)
 }
@@ -165,6 +181,12 @@ func (s *Server) verifyInvoice(w http.ResponseWriter, r *http.Request) {
 	if !consistent {
 		resp["drift_minor"] = fetched.AmountMinor - ledgerMinor
 		status = http.StatusConflict
+		go s.emit("drift.detected", map[string]any{
+			"invoice_id":  inv.ID,
+			"scope":       "processor",
+			"processor":   s.proc.Name(),
+			"drift_minor": fetched.AmountMinor - ledgerMinor,
+		})
 	}
 	writeJSON(w, status, resp)
 }

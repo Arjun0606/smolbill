@@ -65,6 +65,8 @@ docker compose up
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |
+| `POST` | `/v1/webhooks` | register a **signed** webhook for `invoice.finalized` / `drift.detected` (HMAC-SHA256, secret returned once) |
+| `GET`  | `/v1/webhooks` | list registered webhooks |
 | `POST` | `/v1/wallet/{customer_id}/topup` | idempotent prepaid wallet credit |
 | `GET`  | `/v1/wallet/{customer_id}` | wallet balance + transactions |
 | `GET`  | `/dashboard` | server-rendered admin dashboard (embedded in the binary) |
@@ -125,6 +127,7 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Reconcile** (`internal/reconcile`) — pure diff of stored ledger vs. live recompute; the proof behind `/v1/reconcile`.
 - **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, `stripe` thin client (exact cents, idempotency), `fake` test double.
 - **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
+- **Webhooks** (`internal/webhook`) — signed (HMAC-SHA256, `X-Smolbill-Signature`) outbound delivery of lifecycle events (`invoice.finalized`, `drift.detected`); fired on finalize and on every drift the reconciler catches, best-effort so a slow endpoint never blocks billing.
 - **Web** (`internal/api/web.go` + `templates/`) — server-rendered dashboard, reconcile view, and embeddable customer portal; HTML embedded via `go:embed` (single binary).
 - **Engine** (`internal/engine`) — shared compute + plan-building used by both the REST API and the MCP server, so the two can never disagree.
 - **MCP** (`internal/mcp`) — intent-only MCP server over stdio (no SDK); the agent sets rules, never touches money math.
