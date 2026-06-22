@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><title>reconcile {{.Invoice.ID}} · smolbill</title>{{template "styles"}}</head>
+<body><div class="wrap">
+  <p class="mut"><a href="/dashboard/customers/{{.Invoice.CustomerID}}">← customer</a></p>
+  <h1>Reconciliation</h1>
+  <p class="sub mono">{{.Invoice.ID}}</p>
+
+  <div class="card">
+    {{if .Proof.Consistent}}
+      <span class="pill ok">✓ consistent</span>
+      <p class="mut">The meter and the invoice provably agree. The live event log still reproduces this invoice exactly.</p>
+    {{else}}
+      <span class="pill bad">✗ drift detected</span>
+      <p class="mut">The live event log no longer reproduces this finalized invoice (likely late or out-of-order events). Every difference is shown below.</p>
+    {{end}}
+    <table>
+      <tr><th>Stored total</th><td class="num">${{.Proof.StoredTotal}}</td></tr>
+      <tr><th>Live total</th><td class="num">${{.Proof.LiveTotal}}</td></tr>
+      <tr><th>Hash match</th><td class="num">{{if .Proof.HashMatch}}<span class="pill ok">yes</span>{{else}}<span class="pill bad">no</span>{{end}}</td></tr>
+    </table>
+    <p class="mono mut" style="margin-top:10px;word-break:break-all">stored {{.Proof.StoredHash}}<br>live&nbsp;&nbsp; {{.Proof.LiveHash}}</p>
+  </div>
+
+  <h2>Per-line proof — raw events → meter → invoice line</h2>
+  <div class="card"><table>
+    <thead><tr><th>Meter</th><th class="num">Events (stored→live)</th><th class="num">Meter value</th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody>
+    {{range .Proof.Lines}}
+      <tr>
+        <td>{{if .MeterCode}}{{.MeterCode}}{{else}}(base fee){{end}}</td>
+        <td class="num">{{.StoredRawEventCount}} → {{.LiveRawEventCount}}</td>
+        <td class="num">{{.StoredMeterValue}} → {{.LiveMeterValue}}</td>
+        <td class="num">${{.StoredAmount}} → ${{.LiveAmount}}</td>
+        <td>{{if .Consistent}}<span class="pill ok">ok</span>{{else}}<span class="pill bad">drift</span>{{end}}</td>
+      </tr>
+      {{range .Diffs}}<tr><td colspan="5" class="diff">↳ {{.}}</td></tr>{{end}}
+    {{end}}
+    </tbody>
+  </table></div>
+
+  {{if .Proof.Diffs}}<div class="card">{{range .Proof.Diffs}}<div class="diff">⚠ {{.}}</div>{{end}}</div>{{end}}
+  <p class="foot">metered by smolbill</p>
+</div></body></html>

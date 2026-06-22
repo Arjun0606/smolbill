@@ -7,6 +7,8 @@ package store
 import (
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/Arjun0606/smolbill/internal/domain"
 )
 
@@ -62,4 +64,20 @@ type Store interface {
 	AlertsForCustomer(customerID string) ([]domain.Alert, error)
 	// UpdateAlertFired advances an alert's high-water mark of fired thresholds.
 	UpdateAlertFired(alertID string, maxFired int) error
+
+	// --- wallet (Phase 4) ---
+
+	// Wallet returns the customer's wallet, or ok=false if none exists yet.
+	Wallet(customerID string) (domain.Wallet, bool, error)
+	// TopUpWallet credits the wallet by amount, idempotently on idempotencyKey
+	// (a repeated key is a no-op returning the current balance). Creates the
+	// wallet in the given currency on first top-up.
+	TopUpWallet(customerID string, amount decimal.Decimal, currency, reason, idempotencyKey string) (domain.Wallet, error)
+	// WalletTransactions returns the wallet's ledger, newest first.
+	WalletTransactions(customerID string) ([]domain.WalletTransaction, error)
+
+	// --- dashboard reads (Phase 4) ---
+
+	ListCustomers() ([]domain.Customer, error)
+	InvoicesForCustomer(customerID string) ([]domain.Invoice, error)
 }

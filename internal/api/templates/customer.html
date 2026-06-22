@@ -1,0 +1,59 @@
+<!doctype html><html><head><meta charset="utf-8"><title>{{.Customer.Name}} · smolbill</title>{{template "styles"}}</head>
+<body><div class="wrap">
+  <p class="mut"><a href="/dashboard">← all customers</a></p>
+  <h1>{{.Customer.Name}}</h1>
+  <p class="sub mono">{{.Customer.ID}}</p>
+
+  {{if .HasSub}}
+  <div class="card">
+    <div class="mut">Projected current-period bill</div>
+    <div class="big">${{.Projected}} {{.Currency}}</div>
+    <div class="mut">period {{date .Subscription.CurrentPeriodStart}} → {{date .Subscription.CurrentPeriodEnd}}</div>
+  </div>
+
+  <h2>Usage this period</h2>
+  <div class="card"><table>
+    <thead><tr><th>Meter</th><th class="num">Quantity</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+    {{range .Usage}}<tr><td>{{.MeterCode}}</td><td class="num">{{.Quantity}}</td><td class="num">${{.Amount}}</td></tr>{{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <div class="card mut">No active subscription.</div>
+  {{end}}
+
+  {{if .Wallet}}
+  <h2>Wallet</h2>
+  <div class="card">
+    <div class="big">${{money .Wallet.Balance}} {{.Wallet.Currency}}</div>
+    {{if .WalletTxns}}<table>
+      <thead><tr><th>When</th><th>Reason</th><th class="num">Amount</th></tr></thead>
+      <tbody>{{range .WalletTxns}}<tr><td class="mut">{{datetime .CreatedAt}}</td><td>{{.Reason}}</td><td class="num">${{money .Amount}}</td></tr>{{end}}</tbody>
+    </table>{{end}}
+  </div>
+  {{end}}
+
+  <h2>Invoices</h2>
+  <div class="card"><table>
+    <thead><tr><th>Period</th><th>Status</th><th class="num">Total</th><th></th></tr></thead>
+    <tbody>
+    {{range .Invoices}}
+      <tr><td>{{date .PeriodStart}} → {{date .PeriodEnd}}</td><td>{{.Status}}</td><td class="num">${{money .Total}} {{.Currency}}</td>
+      <td class="num"><a href="/dashboard/invoices/{{.ID}}/reconcile">reconcile →</a></td></tr>
+    {{else}}
+      <tr><td colspan="4" class="mut">No finalized invoices yet.</td></tr>
+    {{end}}
+    </tbody>
+  </table></div>
+
+  <h2>Event timeline</h2>
+  <div class="card"><table>
+    <thead><tr><th>Event time</th><th>Meter</th><th class="mut">Idempotency key</th></tr></thead>
+    <tbody>
+    {{range .Events}}<tr><td class="mut">{{datetime .EventTime}}</td><td>{{.MeterCode}}</td><td class="mut mono">{{.IdempotencyKey}}</td></tr>
+    {{else}}<tr><td colspan="3" class="mut">No events yet.</td></tr>{{end}}
+    </tbody>
+  </table></div>
+
+  <p class="foot">metered by smolbill</p>
+</div></body></html>

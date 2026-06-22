@@ -582,6 +582,146 @@ func (s *Store) UpdateAlertFired(alertID string, maxFired int) error {
 	return nil
 }
 
+// --- wallet ---
+
+func (s *Store) Wallet(customerID string) (domain.Wallet, bool, error) {
+	var w domain.Wallet
+	var bal *string
+	err := s.pool.QueryRow(s.ctx,
+		`SELECT id, customer_id, balance::text, currency FROM wallets WHERE customer_id = $1`, customerID,
+	).Scan(&w.ID, &w.CustomerID, &bal, &w.Currency)
+	if err == pgx.ErrNoRows {
+		return domain.Wallet{}, false, nil
+	}
+	if err != nil {
+		return domain.Wallet{}, false, fmt.Errorf("postgres: Wallet: %w", err)
+	}
+	w.Balance = parseDec(bal)
+	return w, true, nil
+}
+
+// TopUpWallet credits the wallet atomically and idempotently. The unique
+// constraint on wallet_transactions.idempotency_key makes a repeated top-up a
+// no-op: the transaction insert is skipped and the balance is left untouched.
+func (s *Store) TopUpWallet(customerID string, amount decimal.Decimal, currency, reason, idempotencyKey string) (domain.Wallet, error) {
+	tx, err := s.pool.Begin(s.ctx)
+	if err != nil {
+		return domain.Wallet{}, fmt.Errorf("postgres: TopUpWallet begin: %w", err)
+	}
+	defer tx.Rollback(s.ctx)
+
+	// Ensure a wallet row exists (create on first top-up).
+	var walletID, walletCurrency string
+	err = tx.QueryRow(s.ctx, `SELECT id, currency FROM wallets WHERE customer_id = $1`, customerID).Scan(&walletID, &walletCurrency)
+	if err == pgx.ErrNoRows {
+		walletID = id.New("wlt")
+		walletCurrency = currency
+		if _, err := tx.Exec(s.ctx,
+			`INSERT INTO wallets (id, customer_id, balance, currency) VALUES ($1,$2,0,$3)`,
+			walletID, customerID, currency); err != nil {
+			return domain.Wallet{}, fmt.Errorf("postgres: create wallet: %w", err)
+		}
+	} else if err != nil {
+		return domain.Wallet{}, fmt.Errorf("postgres: load wallet: %w", err)
+	}
+	if walletCurrency != currency {
+		return domain.Wallet{}, fmt.Errorf("postgres: wallet currency %s != top-up currency %s", walletCurrency, currency)
+	}
+
+	// Insert the transaction; ON CONFLICT means this key was already applied.
+	key := idempotencyKey
+	if key == "" {
+		key = id.New("wtx") // unconditional credit if no key supplied
+	}
+	ct, err := tx.Exec(s.ctx,
+		`INSERT INTO wallet_transactions (id, wallet_id, amount, reason, idempotency_key)
+		 VALUES ($1,$2,$3::numeric,$4,$5) ON CONFLICT (idempotency_key) DO NOTHING`,
+		id.New("wtx"), walletID, amount.String(), reason, key)
+	if err != nil {
+		return domain.Wallet{}, fmt.Errorf("postgres: insert wallet txn: %w", err)
+	}
+	if ct.RowsAffected() == 1 {
+		// Newly applied — move the balance.
+		if _, err := tx.Exec(s.ctx,
+			`UPDATE wallets SET balance = balance + $2::numeric WHERE id = $1`, walletID, amount.String()); err != nil {
+			return domain.Wallet{}, fmt.Errorf("postgres: update balance: %w", err)
+		}
+	}
+
+	var bal *string
+	if err := tx.QueryRow(s.ctx, `SELECT balance::text FROM wallets WHERE id = $1`, walletID).Scan(&bal); err != nil {
+		return domain.Wallet{}, fmt.Errorf("postgres: read balance: %w", err)
+	}
+	if err := tx.Commit(s.ctx); err != nil {
+		return domain.Wallet{}, fmt.Errorf("postgres: TopUpWallet commit: %w", err)
+	}
+	return domain.Wallet{ID: walletID, CustomerID: customerID, Balance: parseDec(bal), Currency: currency}, nil
+}
+
+func (s *Store) WalletTransactions(customerID string) ([]domain.WalletTransaction, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT wt.id, wt.wallet_id, wt.amount::text, wt.reason, wt.idempotency_key, wt.created_at
+		 FROM wallet_transactions wt JOIN wallets w ON w.id = wt.wallet_id
+		 WHERE w.customer_id = $1 ORDER BY wt.created_at DESC`, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: WalletTransactions: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.WalletTransaction
+	for rows.Next() {
+		var t domain.WalletTransaction
+		var amt *string
+		if err := rows.Scan(&t.ID, &t.WalletID, &amt, &t.Reason, &t.IdempotencyKey, &t.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan wallet txn: %w", err)
+		}
+		t.Amount = parseDec(amt)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// --- dashboard reads ---
+
+func (s *Store) ListCustomers() ([]domain.Customer, error) {
+	rows, err := s.pool.Query(s.ctx, `SELECT id, external_id, name, created_at FROM customers ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: ListCustomers: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Customer
+	for rows.Next() {
+		var c domain.Customer
+		var ext *string
+		if err := rows.Scan(&c.ID, &ext, &c.Name, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan customer: %w", err)
+		}
+		c.ExternalID = derefStr(ext)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) InvoicesForCustomer(customerID string) ([]domain.Invoice, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, customer_id, subscription_id, period_start, period_end, status, total::text, currency
+		 FROM invoices WHERE customer_id = $1 ORDER BY period_start DESC`, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: InvoicesForCustomer: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Invoice
+	for rows.Next() {
+		var inv domain.Invoice
+		var total *string
+		if err := rows.Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd, &inv.Status, &total, &inv.Currency); err != nil {
+			return nil, fmt.Errorf("postgres: scan invoice: %w", err)
+		}
+		inv.Total = parseDec(total)
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
 // --- helpers ---
 
 func nullTime(t time.Time) *time.Time {

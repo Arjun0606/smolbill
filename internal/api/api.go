@@ -64,6 +64,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
 	mux.HandleFunc("GET /v1/entitlements/{customer_id}", s.getEntitlements)
 	mux.HandleFunc("POST /v1/alerts", s.createAlert)
+
+	// Wallet (free, OSS-core — the feature Lago charges ~$1,500/mo for).
+	mux.HandleFunc("POST /v1/wallet/{customer_id}/topup", s.topupWallet)
+	mux.HandleFunc("GET /v1/wallet/{customer_id}", s.getWallet)
+
+	// Dashboard (server-rendered, embedded in the binary) + embeddable portal.
+	mux.HandleFunc("GET /dashboard", s.dashboardHome)
+	mux.HandleFunc("GET /dashboard/customers/{customer_id}", s.dashboardCustomer)
+	mux.HandleFunc("GET /dashboard/invoices/{invoice_id}/reconcile", s.dashboardReconcile)
+	mux.HandleFunc("GET /portal/{customer_id}", s.portal)
 	return mux
 }
 

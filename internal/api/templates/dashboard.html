@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><title>smolbill dashboard</title>{{template "styles"}}</head>
+<body><div class="wrap">
+  <h1>smolbill</h1>
+  <p class="sub">provably-correct usage billing · {{len .Customers}} customer(s)</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>Customer</th><th>External ID</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {{range .Customers}}
+        <tr>
+          <td><a href="/dashboard/customers/{{.ID}}">{{.Name}}</a></td>
+          <td class="mut mono">{{.ExternalID}}</td>
+          <td class="mut">{{date .CreatedAt}}</td>
+          <td class="num"><a href="/portal/{{.ID}}">portal ↗</a></td>
+        </tr>
+      {{else}}
+        <tr><td colspan="4" class="mut">No customers yet. Create one via <span class="mono">POST /v1/customers</span>.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p class="foot">metered by smolbill</p>
+</div></body></html>

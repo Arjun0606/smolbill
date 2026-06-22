@@ -5,8 +5,11 @@
 package memory
 
 import (
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/shopspring/decimal"
 
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/id"
@@ -20,11 +23,14 @@ type Store struct {
 	plans        map[string]domain.Plan  // keyed by id
 	subs         map[string]domain.Subscription
 	events       []domain.Event
-	seenKeys     map[string]time.Time            // idempotency_key -> ingestedAt
-	invoices     map[string]domain.Invoice       // keyed by id
-	ledger       map[string][]domain.LedgerRow   // invoice_id -> rows
-	entitlements map[string][]domain.Entitlement // customer_id -> entitlements
-	alerts       map[string]domain.Alert         // keyed by id
+	seenKeys     map[string]time.Time                  // idempotency_key -> ingestedAt
+	invoices     map[string]domain.Invoice             // keyed by id
+	ledger       map[string][]domain.LedgerRow         // invoice_id -> rows
+	entitlements map[string][]domain.Entitlement       // customer_id -> entitlements
+	alerts       map[string]domain.Alert               // keyed by id
+	wallets      map[string]domain.Wallet              // customer_id -> wallet
+	walletTxns   map[string][]domain.WalletTransaction // customer_id -> txns
+	walletKeys   map[string]bool                       // wallet idempotency keys seen
 }
 
 // New returns an empty store.
@@ -39,6 +45,9 @@ func New() *Store {
 		ledger:       map[string][]domain.LedgerRow{},
 		entitlements: map[string][]domain.Entitlement{},
 		alerts:       map[string]domain.Alert{},
+		wallets:      map[string]domain.Wallet{},
+		walletTxns:   map[string][]domain.WalletTransaction{},
+		walletKeys:   map[string]bool{},
 	}
 }
 
@@ -221,4 +230,70 @@ func (s *Store) UpdateAlertFired(alertID string, maxFired int) error {
 	a.MaxFired = maxFired
 	s.alerts[alertID] = a
 	return nil
+}
+
+// --- wallet ---
+
+func (s *Store) Wallet(customerID string) (domain.Wallet, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	w, ok := s.wallets[customerID]
+	return w, ok, nil
+}
+
+func (s *Store) TopUpWallet(customerID string, amount decimal.Decimal, currency, reason, idempotencyKey string) (domain.Wallet, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if idempotencyKey != "" && s.walletKeys[idempotencyKey] {
+		return s.wallets[customerID], nil // already applied — no double credit
+	}
+
+	w, ok := s.wallets[customerID]
+	if !ok {
+		w = domain.Wallet{ID: id.New("wlt"), CustomerID: customerID, Balance: decimal.Zero, Currency: currency}
+	} else if w.Currency != currency {
+		return domain.Wallet{}, fmt.Errorf("memory: wallet currency %s != top-up currency %s", w.Currency, currency)
+	}
+	w.Balance = w.Balance.Add(amount)
+	s.wallets[customerID] = w
+
+	if idempotencyKey != "" {
+		s.walletKeys[idempotencyKey] = true
+	}
+	s.walletTxns[customerID] = append([]domain.WalletTransaction{{
+		ID: id.New("wtx"), WalletID: w.ID, Amount: amount, Reason: reason,
+		IdempotencyKey: idempotencyKey, CreatedAt: time.Now().UTC(),
+	}}, s.walletTxns[customerID]...) // newest first
+	return w, nil
+}
+
+func (s *Store) WalletTransactions(customerID string) ([]domain.WalletTransaction, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]domain.WalletTransaction(nil), s.walletTxns[customerID]...), nil
+}
+
+// --- dashboard reads ---
+
+func (s *Store) ListCustomers() ([]domain.Customer, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Customer, 0, len(s.customers))
+	for _, c := range s.customers {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s *Store) InvoicesForCustomer(customerID string) ([]domain.Invoice, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Invoice
+	for _, inv := range s.invoices {
+		if inv.CustomerID == customerID {
+			out = append(out, inv)
+		}
+	}
+	return out, nil
 }

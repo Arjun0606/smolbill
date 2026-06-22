@@ -25,7 +25,7 @@ func testStore(t *testing.T) *Store {
 	}
 	t.Cleanup(st.Close)
 	// Clean slate for repeatable runs.
-	for _, tbl := range []string{"alerts", "reconciliation_ledger", "invoice_lines", "invoices", "entitlements", "events", "prices", "subscriptions", "plans", "meters", "customers"} {
+	for _, tbl := range []string{"wallet_transactions", "wallets", "alerts", "reconciliation_ledger", "invoice_lines", "invoices", "entitlements", "events", "prices", "subscriptions", "plans", "meters", "customers"} {
 		if _, err := st.pool.Exec(context.Background(), "DELETE FROM "+tbl); err != nil {
 			t.Fatalf("cleanup %s: %v", tbl, err)
 		}
@@ -237,5 +237,30 @@ func TestPostgresAlertRoundTrip(t *testing.T) {
 	got, _ = st.AlertsForCustomer("cus_al")
 	if got[0].MaxFired != 80 {
 		t.Fatalf("max_fired after update = %d, want 80", got[0].MaxFired)
+	}
+}
+
+func TestPostgresWalletIdempotentTopup(t *testing.T) {
+	st := testStore(t)
+	if err := st.PutCustomer(domain.Customer{ID: "cus_w", Name: "W"}); err != nil {
+		t.Fatal(err)
+	}
+	w, err := st.TopUpWallet("cus_w", d("50.00"), "USD", "prepaid", "k1")
+	if err != nil || !w.Balance.Equal(d("50.00")) {
+		t.Fatalf("first topup balance=%s err=%v", w.Balance, err)
+	}
+	// Same key -> no double credit.
+	w, err = st.TopUpWallet("cus_w", d("50.00"), "USD", "prepaid", "k1")
+	if err != nil || !w.Balance.Equal(d("50.00")) {
+		t.Fatalf("idempotent topup balance=%s err=%v", w.Balance, err)
+	}
+	// New key -> credits.
+	w, _ = st.TopUpWallet("cus_w", d("40.00"), "USD", "topup", "k2")
+	if !w.Balance.Equal(d("90.00")) {
+		t.Fatalf("second topup balance=%s, want 90.00", w.Balance)
+	}
+	txns, _ := st.WalletTransactions("cus_w")
+	if len(txns) != 2 {
+		t.Fatalf("wallet txns = %d, want 2", len(txns))
 	}
 }

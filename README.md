@@ -44,7 +44,17 @@ docker compose up
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |
+| `POST` | `/v1/wallet/{customer_id}/topup` | idempotent prepaid wallet credit |
+| `GET`  | `/v1/wallet/{customer_id}` | wallet balance + transactions |
+| `GET`  | `/dashboard` | server-rendered admin dashboard (embedded in the binary) |
+| `GET`  | `/dashboard/customers/{id}` | timeline, usage, invoices, wallet for a customer |
+| `GET`  | `/dashboard/invoices/{id}/reconcile` | the reconciliation ledger, rendered |
+| `GET`  | `/portal/{customer_id}` | **free embeddable customer portal** (usage, bill, wallet) |
 | `GET`  | `/healthz` | liveness |
+
+### Dashboard + free customer portal
+
+The whole UI is server-rendered HTML embedded in the single binary (no Next.js, no build step, no framework) — visit `/dashboard`. The embeddable **customer portal** at `/portal/{id}` shows a customer their live usage, projected bill, wallet balance, and entitlement limits, with a subtle "metered by smolbill" footer. This is the feature Lago charges ~$1,500/mo for, given away in the OSS core (and a built-in distribution loop).
 
 ### Payments (Stripe) + spend alerts
 
@@ -82,6 +92,7 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Reconcile** (`internal/reconcile`) — pure diff of stored ledger vs. live recompute; the proof behind `/v1/reconcile`.
 - **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, `stripe` thin client (exact cents, idempotency), `fake` test double.
 - **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
+- **Web** (`internal/api/web.go` + `templates/`) — server-rendered dashboard, reconcile view, and embeddable customer portal; HTML embedded via `go:embed` (single binary).
 - **Schema** (`migrations/0001_init.sql`) — the full v0 Postgres data model from the build plan §8.
 
 ## Run it
@@ -111,8 +122,8 @@ Postgres integration tests run when `SMOLBILL_TEST_DATABASE_URL` is set; otherwi
 - **Phase 1+ — Postgres backend + `/v1` HTTP API** ✅
 - **Phase 2 — reconciliation ledger + entitlements** ✅ (`GET /reconcile/{invoice}`)
 - **Phase 3 — Stripe push + spend alerts (50/80/100%)** ✅
-- **Phase 4 — dashboard + free customer wallet/portal** ← next
-- **Phase 5 — MCP server (thin, intent-only)**
+- **Phase 4 — dashboard + free customer wallet/portal** ✅
+- **Phase 5 — MCP server (thin, intent-only)** ← next
 - **Phase 6 — single-binary release + Show HN**
 
 ## License
