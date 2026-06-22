@@ -5,23 +5,29 @@ package fake
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/payments"
 )
 
 // Processor is a recording test double.
 type Processor struct {
 	mu       sync.Mutex
-	byKey    map[string]payments.PushResult // idempotency_key -> result
-	Pushes   []payments.PushRequest         // every call, in order
-	FailWith error                          // if set, PushInvoice returns this
+	byKey    map[string]payments.PushResult     // idempotency_key -> result
+	byID     map[string]payments.FetchedInvoice // external id -> what it "billed"
+	Pushes   []payments.PushRequest             // every call, in order
+	FailWith error                              // if set, PushInvoice returns this
 	seq      int
 }
 
 // New returns an empty fake processor.
 func New() *Processor {
-	return &Processor{byKey: map[string]payments.PushResult{}}
+	return &Processor{
+		byKey: map[string]payments.PushResult{},
+		byID:  map[string]payments.FetchedInvoice{},
+	}
 }
 
 // Name implements payments.Processor.
@@ -45,8 +51,35 @@ func (p *Processor) PushInvoice(_ context.Context, req payments.PushRequest) (pa
 		HostedURL:  "https://fake.invoices/" + itoa(p.seq),
 	}
 	p.byKey[req.IdempotencyKey] = res
+	p.byID[res.ExternalID] = payments.FetchedInvoice{
+		AmountMinor: money.New(req.Invoice.Total, req.Invoice.Currency).MinorUnits(),
+		Currency:    req.Invoice.Currency,
+		Status:      res.Status,
+	}
 	p.Pushes = append(p.Pushes, req)
 	return res, nil
+}
+
+// FetchInvoice returns what the fake processor "billed" for an external id.
+func (p *Processor) FetchInvoice(_ context.Context, externalID string) (payments.FetchedInvoice, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fi, ok := p.byID[externalID]
+	if !ok {
+		return payments.FetchedInvoice{}, fmt.Errorf("fake: no invoice %q", externalID)
+	}
+	return fi, nil
+}
+
+// Tamper rewrites the amount the fake reports for an external id — simulating a
+// processor that billed something other than smolbill computed (a tax line, a
+// manual edit). Used to prove the cross-boundary reconciler catches drift.
+func (p *Processor) Tamper(externalID string, amountMinor int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fi := p.byID[externalID]
+	fi.AmountMinor = amountMinor
+	p.byID[externalID] = fi
 }
 
 // Count returns how many distinct pushes were recorded.

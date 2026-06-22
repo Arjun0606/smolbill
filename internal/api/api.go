@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/invoices/simulate", s.simulateInvoice)
 	mux.HandleFunc("POST /v1/invoices/finalize", s.finalizeInvoice)
 	mux.HandleFunc("GET /v1/reconcile/{invoice_id}", s.reconcileInvoice)
+	mux.HandleFunc("GET /v1/invoices/{invoice_id}/verify", s.verifyInvoice)
 	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
 	mux.HandleFunc("GET /v1/entitlements/{customer_id}", s.getEntitlements)
 	mux.HandleFunc("POST /v1/alerts", s.createAlert)

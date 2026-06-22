@@ -38,4 +38,18 @@ type Processor interface {
 	// PushInvoice creates (and finalizes) the invoice on the processor. It must
 	// be idempotent on req.IdempotencyKey.
 	PushInvoice(ctx context.Context, req PushRequest) (PushResult, error)
+	// FetchInvoice reads back what the processor actually billed, so smolbill can
+	// reconcile across the money rail: assert the processor's amount equals the
+	// ledger's. This is the cross-boundary half of "the meter and the invoice
+	// provably never disagree" — it catches drift the processor introduced
+	// (a tax line, a rounding rule, a manual edit) that an internal ledger can't.
+	FetchInvoice(ctx context.Context, externalID string) (FetchedInvoice, error)
+}
+
+// FetchedInvoice is what a processor reports it actually billed, in integer
+// minor units (never a float) so it compares exactly against the ledger.
+type FetchedInvoice struct {
+	AmountMinor int64
+	Currency    string
+	Status      string
 }

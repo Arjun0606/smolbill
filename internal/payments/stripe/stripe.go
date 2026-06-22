@@ -130,6 +130,30 @@ func (c *Client) PushInvoice(ctx context.Context, req payments.PushRequest) (pay
 	}, nil
 }
 
+// FetchInvoice reads an invoice back from Stripe to reconcile across the money
+// rail. Stripe already reports amounts in integer minor units, so the comparison
+// against smolbill's ledger is exact — no float ever enters.
+func (c *Client) FetchInvoice(ctx context.Context, externalID string) (payments.FetchedInvoice, error) {
+	var resp struct {
+		Total     int64  `json:"total"`
+		AmountDue int64  `json:"amount_due"`
+		Currency  string `json:"currency"`
+		Status    string `json:"status"`
+	}
+	if err := c.get(ctx, "/v1/invoices/"+externalID, &resp); err != nil {
+		return payments.FetchedInvoice{}, err
+	}
+	amount := resp.Total
+	if amount == 0 {
+		amount = resp.AmountDue
+	}
+	return payments.FetchedInvoice{
+		AmountMinor: amount,
+		Currency:    strings.ToUpper(resp.Currency),
+		Status:      resp.Status,
+	}, nil
+}
+
 // post sends a form-encoded request to Stripe with bearer auth and an
 // idempotency key, decoding a 2xx JSON body into out (if non-nil) and turning a
 // non-2xx into a structured error.
@@ -162,6 +186,30 @@ func (c *Client) post(ctx context.Context, path string, form url.Values, idempot
 		if e.Error.Message != "" {
 			return fmt.Errorf("stripe %d: %s (%s)", resp.StatusCode, e.Error.Message, e.Error.Type)
 		}
+		return fmt.Errorf("stripe %d: %s", resp.StatusCode, string(body))
+	}
+	if out != nil {
+		if err := json.Unmarshal(body, out); err != nil {
+			return fmt.Errorf("stripe: decode response: %w", err)
+		}
+	}
+	return nil
+}
+
+// get issues an authenticated GET to Stripe and decodes a 2xx JSON body.
+func (c *Client) get(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("stripe %d: %s", resp.StatusCode, string(body))
 	}
 	if out != nil {

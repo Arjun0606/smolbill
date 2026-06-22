@@ -11,6 +11,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/invoice"
 	"github.com/Arjun0606/smolbill/internal/meter"
+	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
 )
@@ -122,6 +123,50 @@ func (s *Server) reconcileInvoice(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusConflict
 	}
 	writeJSON(w, status, proof)
+}
+
+// verifyInvoice reconciles ACROSS the money rail: it asks the payment processor
+// (any processor — Stripe today, Paddle/Dodo tomorrow) what it ACTUALLY billed
+// for this invoice and asserts it equals the ledger total to the exact minor
+// unit. This catches drift the processor introduced — a tax line, a manual edit,
+// a rounding rule — that an internal-only reconciliation can never see. 200 if
+// they agree, 409 with the delta if the processor billed something different.
+func (s *Server) verifyInvoice(w http.ResponseWriter, r *http.Request) {
+	inv, ok, err := s.store.GetInvoice(r.PathValue("invoice_id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "unknown invoice_id")
+		return
+	}
+	if s.proc == nil || inv.StripeInvoiceID == "" {
+		writeErr(w, http.StatusBadRequest, "invoice has not been pushed to a payment processor")
+		return
+	}
+	fetched, err := s.proc.FetchInvoice(r.Context(), inv.StripeInvoiceID)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	ledgerMinor := money.New(inv.Total, inv.Currency).MinorUnits()
+	consistent := fetched.AmountMinor == ledgerMinor
+	resp := map[string]any{
+		"invoice_id":             inv.ID,
+		"processor":              s.proc.Name(),
+		"external_invoice_id":    inv.StripeInvoiceID,
+		"ledger_amount_minor":    ledgerMinor,
+		"processor_amount_minor": fetched.AmountMinor,
+		"currency":               inv.Currency,
+		"consistent":             consistent,
+	}
+	status := http.StatusOK
+	if !consistent {
+		resp["drift_minor"] = fetched.AmountMinor - ledgerMinor
+		status = http.StatusConflict
+	}
+	writeJSON(w, status, resp)
 }
 
 // recomputeForInvoice runs the deterministic engine over the CURRENT event log
