@@ -25,6 +25,16 @@ Money math is integer-precise decimals (never floats) and rounds toward under-bi
 
 ### Quickstart
 
+**See everything working in 60 seconds — no setup, no config, no account:**
+
+```sh
+go run ./cmd/smolbill quickstart
+```
+
+It seeds a real account (a Pro plan, usage events, a finalized invoice) and serves it, then prints links to the dashboard, the reconciliation ledger, live usage, **time-travel** (`?as_of=`), and the **AI sandbox** (`/simulate`) — all populated and clickable. This is the onboarding the enterprise incumbents can't give you.
+
+Then run it for real:
+
 ```sh
 # zero-setup (in-memory, data not persisted):
 go run ./cmd/smolbill serve              # listens on :8080
