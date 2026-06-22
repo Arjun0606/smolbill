@@ -7,6 +7,7 @@ import (
 
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/dunning"
+	"github.com/Arjun0606/smolbill/internal/engine"
 )
 
 // --- dunning / failed-payment recovery (Phase 8) ---
@@ -148,6 +149,19 @@ func (s *Server) emitCollectionEvent(prev dunning.Status, col domain.Collection)
 	case dunning.Uncollectible:
 		go s.emit("invoice.uncollectible", data)
 	}
+}
+
+// analytics returns the account-wide snapshot: customers, projected + finalized
+// revenue by currency, and dunning recovery. Computed live through the same
+// engine that bills, never a cached counter — the revenue visibility Stripe gates
+// behind paid Sigma and Baremetrics sells as a product.
+func (s *Server) analytics(w http.ResponseWriter, r *http.Request) {
+	a, err := engine.ComputeAnalytics(s.store, s.now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 // --- mapping between the persisted Collection and the pure dunning.State ---

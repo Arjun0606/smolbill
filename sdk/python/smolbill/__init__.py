@@ -76,6 +76,7 @@ class Smolbill:
         self.webhooks = _Webhooks(self)
         self.wallet = _Wallet(self)
         self.dunning = _Dunning(self)
+        self.analytics = _Analytics(self)
 
     def _headers(self) -> dict[str, str]:
         h = {"Content-Type": "application/json"}
@@ -264,3 +265,12 @@ class _Dunning:
     def run(self) -> Any:
         """Process every due collection — the endpoint a cron hits on a cadence."""
         return self._c._request("POST", "/v1/dunning/run")
+
+
+class _Analytics:
+    def __init__(self, c: Smolbill) -> None:
+        self._c = c
+
+    def get(self) -> Any:
+        """Account-wide snapshot: revenue by currency, subscriptions, dunning recovery."""
+        return self._c._request("GET", "/v1/analytics")

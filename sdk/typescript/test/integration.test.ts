@@ -75,6 +75,13 @@ test("full lifecycle: create → ingest → usage → finalize → reconcile →
   const after = await sb.usage.get(cus.id);
   assert.equal(after.projected_total, "64.00", "simulate must persist nothing");
 
+  // Analytics reflects the finalized invoice we just created. (Totals accumulate
+  // across the shared e2e server, so assert presence + a floor, not an exact sum.)
+  const an = await sb.analytics.get();
+  assert.ok(an.customers >= 1, "analytics should count the customer");
+  assert.ok(an.finalized_invoices >= 1, "analytics should count the finalized invoice");
+  assert.ok(Number(an.finalized_revenue["USD"]) >= 64, "USD finalized revenue should include our $64 invoice");
+
   // Dunning methods are wired to the right routes. This e2e binary runs without a
   // payment processor, so collection declines (400) and no collection exists for
   // the invoice (404) — the happy path is covered by the Go API suite.

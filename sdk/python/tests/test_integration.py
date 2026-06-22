@@ -72,6 +72,13 @@ class TestLifecycle(unittest.TestCase):
         after = sb.usage.get(cus["id"])
         self.assertEqual(after["projected_total"], "64.00")  # simulate persisted nothing
 
+        # Analytics reflects the finalized invoice we just created. (Totals
+        # accumulate across the shared e2e server, so assert presence + a floor.)
+        an = sb.analytics.get()
+        self.assertGreaterEqual(an["customers"], 1)
+        self.assertGreaterEqual(an["finalized_invoices"], 1)
+        self.assertGreaterEqual(float(an["finalized_revenue"]["USD"]), 64.0)
+
         # Dunning methods are wired to the right routes. This e2e binary runs
         # without a processor, so collection declines (400) and no collection
         # exists for the invoice (404) — happy path is covered by the Go suite.

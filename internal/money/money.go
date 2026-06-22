@@ -150,6 +150,14 @@ func (a Amount) MinorUnits() int64 {
 	return a.val.Shift(exp).Truncate(0).IntPart()
 }
 
+// FromMinor builds an Amount from an integer count of the currency's smallest
+// unit — the inverse of MinorUnits. FromMinor(6400, "USD") == 64.00. Used by
+// analytics to total amounts stored as minor units (e.g. dunning collections).
+func FromMinor(minor int64, currency string) Amount {
+	exp := MinorUnitExponent(currency)
+	return Amount{val: decimal.New(minor, -exp), currency: currency}
+}
+
 // Sum adds a slice of amounts; all must share one currency. Returns a zero
 // amount in that currency for an empty slice is not possible (unknown currency),
 // so callers pass the currency explicitly.

@@ -685,6 +685,26 @@ func (s *Store) CollectionsDue(now time.Time) ([]domain.Collection, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) Collections() ([]domain.Collection, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT invoice_id, external_id, status, attempts, first_failed_at, next_attempt_at, last_reason, currency, amount_minor, updated_at
+		 FROM collections ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: Collections: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Collection
+	for rows.Next() {
+		var c domain.Collection
+		if err := rows.Scan(&c.InvoiceID, &c.ExternalID, &c.Status, &c.Attempts, &c.FirstFailedAt,
+			&c.NextAttemptAt, &c.LastReason, &c.Currency, &c.AmountMinor, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan collection: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // --- wallet ---
 
 func (s *Store) Wallet(customerID string) (domain.Wallet, bool, error) {

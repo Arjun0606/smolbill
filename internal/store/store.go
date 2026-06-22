@@ -77,6 +77,8 @@ type Store interface {
 	// CollectionsDue returns collections eligible for a charge attempt now: those
 	// scheduled (never attempted) or retrying with a next_attempt_at at/before now.
 	CollectionsDue(now time.Time) ([]domain.Collection, error)
+	// Collections returns every collection (all statuses) — for analytics/reporting.
+	Collections() ([]domain.Collection, error)
 
 	// --- wallet (Phase 4) ---
 

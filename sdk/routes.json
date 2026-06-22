@@ -16,6 +16,7 @@
     { "method": "POST", "path": "/v1/invoices/{invoice_id}/collect","ts": "invoices.collect",     "py": "invoices.collect" },
     { "method": "GET",  "path": "/v1/invoices/{invoice_id}/collection","ts": "invoices.collection","py": "invoices.collection" },
     { "method": "POST", "path": "/v1/dunning/run",                  "ts": "dunning.run",           "py": "dunning.run" },
+    { "method": "GET",  "path": "/v1/analytics",                    "ts": "analytics.get",         "py": "analytics.get" },
     { "method": "POST", "path": "/v1/entitlements",                "ts": "entitlements.create",   "py": "entitlements.create" },
     { "method": "GET",  "path": "/v1/entitlements/{customer_id}",  "ts": "entitlements.get",      "py": "entitlements.get" },
     { "method": "POST", "path": "/v1/alerts",                      "ts": "alerts.create",         "py": "alerts.create" },

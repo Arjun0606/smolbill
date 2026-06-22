@@ -303,6 +303,16 @@ func (s *Store) CollectionsDue(now time.Time) ([]domain.Collection, error) {
 	return out, nil
 }
 
+func (s *Store) Collections() ([]domain.Collection, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Collection, 0, len(s.collections))
+	for _, c := range s.collections {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
 // --- wallet ---
 
 func (s *Store) Wallet(customerID string) (domain.Wallet, bool, error) {

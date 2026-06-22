@@ -13,6 +13,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/engine"
 	"github.com/Arjun0606/smolbill/internal/id"
+	"github.com/Arjun0606/smolbill/internal/reconcile"
 )
 
 // tool is one MCP tool: its advertised schema plus the handler that runs it.
@@ -116,7 +117,243 @@ func (s *Server) buildTools() []tool {
 			}, "customer_id", "plan"),
 			handler: s.simulatePlanChange,
 		},
+		{
+			name:        "create_customer",
+			description: "Create a customer (the billed entity). Returns the customer id you then attach plans to.",
+			inputSchema: obj(map[string]any{
+				"name":        str("customer name"),
+				"external_id": str("optional id in your own system"),
+			}, "name"),
+			handler: s.createCustomerTool,
+		},
+		{
+			name:        "list_customers",
+			description: "List all customers (id + name), so you can see who exists before acting.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.listCustomersTool,
+		},
+		{
+			name:        "finalize_invoice",
+			description: "Materialize a customer's current-period invoice for a subscription: compute it deterministically and persist it with a reconciliation ledger. No money is pushed to a processor (finalize over MCP is local) — the deterministic engine does every cent.",
+			inputSchema: obj(map[string]any{"subscription_id": str("subscription id")}, "subscription_id"),
+			handler:     s.finalizeInvoiceTool,
+		},
+		{
+			name:        "reconcile_invoice",
+			description: "Prove a finalized invoice still matches the live event log. Returns 'consistent' or the exact line-level drift if a late/out-of-order event changed the bill after finalize.",
+			inputSchema: obj(map[string]any{"invoice_id": str("invoice id")}, "invoice_id"),
+			handler:     s.reconcileInvoiceTool,
+		},
+		{
+			name:        "get_analytics",
+			description: "Account-wide snapshot: customer count, active subscriptions, projected + finalized revenue by currency, and dunning recovery (at-risk, recovered, recovery rate). Computed live, never a cached counter.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.getAnalyticsTool,
+		},
+		{
+			name:        "create_webhook",
+			description: "Register an endpoint to receive signed lifecycle events (invoice.finalized, drift.detected, payment_failed, recovered, uncollectible). Returns a signing secret shown only once.",
+			inputSchema: obj(map[string]any{
+				"url":    str("HTTPS endpoint to POST events to"),
+				"events": map[string]any{"type": "array", "items": str("event type; omit for all events")},
+			}, "url"),
+			handler: s.createWebhookTool,
+		},
+		{
+			name:        "get_collection",
+			description: "Inspect the dunning/recovery state of an invoice: status, attempts made, the last decline reason, and when the next retry is due.",
+			inputSchema: obj(map[string]any{"invoice_id": str("invoice id")}, "invoice_id"),
+			handler:     s.getCollectionTool,
+		},
 	}
+}
+
+// --- additional intent/observe handlers (full-lifecycle MCP surface) ---
+
+func (s *Server) createCustomerTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct{ Name, ExternalID string }
+	if err := decodeArgs(args, &a, map[string]*string{"name": &a.Name, "external_id": &a.ExternalID}); err != nil {
+		return "", err
+	}
+	if a.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	c := domain.Customer{ID: id.New("cus"), Name: a.Name, ExternalID: a.ExternalID, CreatedAt: s.now()}
+	if err := s.store.PutCustomer(c); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Created customer %q (id %s). Attach a plan to it next.", a.Name, c.ID), nil
+}
+
+func (s *Server) listCustomersTool(_ context.Context, _ json.RawMessage) (string, error) {
+	cs, err := s.store.ListCustomers()
+	if err != nil {
+		return "", err
+	}
+	if len(cs) == 0 {
+		return "No customers yet. Create one with create_customer.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d customer(s):\n", len(cs))
+	for _, c := range cs {
+		name := c.Name
+		if name == "" {
+			name = "(unnamed)"
+		}
+		fmt.Fprintf(&b, "  • %s — %s\n", c.ID, name)
+	}
+	return b.String(), nil
+}
+
+func (s *Server) finalizeInvoiceTool(_ context.Context, args json.RawMessage) (string, error) {
+	var subID string
+	if err := json.Unmarshal(args, &struct {
+		SubscriptionID *string `json:"subscription_id"`
+	}{&subID}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if subID == "" {
+		return "", fmt.Errorf("subscription_id is required")
+	}
+	sub, ok, err := s.store.GetSubscription(subID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("unknown subscription_id %q", subID)
+	}
+	res, err := engine.Compute(s.store, sub)
+	if err != nil {
+		return "", err
+	}
+	inv := res.Invoice
+	inv.ID = id.New("inv")
+	inv.Status = "finalized"
+	ledger := reconcile.LedgerFromResult(inv.ID, res)
+	if err := s.store.SaveFinalizedInvoice(inv, ledger); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Finalized invoice %s for customer %s: $%s %s (period %s → %s). Reconciliation ledger persisted — call reconcile_invoice any time. No money pushed (finalize over MCP is local).",
+		inv.ID, inv.CustomerID, inv.Total.StringFixed(2), inv.Currency,
+		inv.PeriodStart.Format("2006-01-02"), inv.PeriodEnd.Format("2006-01-02")), nil
+}
+
+func (s *Server) reconcileInvoiceTool(_ context.Context, args json.RawMessage) (string, error) {
+	var invID string
+	if err := json.Unmarshal(args, &struct {
+		InvoiceID *string `json:"invoice_id"`
+	}{&invID}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if invID == "" {
+		return "", fmt.Errorf("invoice_id is required")
+	}
+	inv, ok, err := s.store.GetInvoice(invID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("unknown invoice_id %q", invID)
+	}
+	ledger, err := s.store.GetLedger(invID)
+	if err != nil {
+		return "", err
+	}
+	sub, ok, err := s.store.GetSubscription(inv.SubscriptionID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("the subscription for this invoice no longer exists")
+	}
+	// Pin the recompute to the invoice's own period so we compare like with like.
+	sub.CurrentPeriodStart = inv.PeriodStart
+	sub.CurrentPeriodEnd = inv.PeriodEnd
+	live, err := engine.Compute(s.store, sub)
+	if err != nil {
+		return "", err
+	}
+	proof := reconcile.Build(inv, ledger, live)
+	if proof.Consistent {
+		return fmt.Sprintf("Invoice %s reconciles: the meter and the invoice provably agree (total $%s, hash match). Nothing drifted.",
+			inv.ID, proof.StoredTotal), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "DRIFT on invoice %s: stored $%s vs live $%s.\n", inv.ID, proof.StoredTotal, proof.LiveTotal)
+	for _, d := range proof.Diffs {
+		fmt.Fprintf(&b, "  • %s\n", d)
+	}
+	for _, l := range proof.Lines {
+		for _, d := range l.Diffs {
+			fmt.Fprintf(&b, "  • [%s] %s\n", l.MeterCode, d)
+		}
+	}
+	return b.String(), nil
+}
+
+func (s *Server) getAnalyticsTool(_ context.Context, _ json.RawMessage) (string, error) {
+	a, err := engine.ComputeAnalytics(s.store, s.now())
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Account snapshot (%s):\n", a.GeneratedAt.Format("2006-01-02"))
+	fmt.Fprintf(&b, "  customers: %d · active subscriptions: %d · finalized invoices: %d\n",
+		a.Customers, a.ActiveSubscriptions, a.FinalizedInvoices)
+	for cur, amt := range a.ProjectedRevenue {
+		fmt.Fprintf(&b, "  projected this period: %s %s\n", amt, cur)
+	}
+	for cur, amt := range a.FinalizedRevenue {
+		fmt.Fprintf(&b, "  finalized revenue: %s %s\n", amt, cur)
+	}
+	fmt.Fprintf(&b, "  dunning: %d retrying · %d need action · %d recovered · %d written off (recovery rate %s)\n",
+		a.Dunning.Retrying, a.Dunning.RequiresAction, a.Dunning.Recovered, a.Dunning.Uncollectible, a.Dunning.RecoveryRate)
+	for cur, amt := range a.Dunning.AmountAtRisk {
+		fmt.Fprintf(&b, "  at risk: %s %s\n", amt, cur)
+	}
+	return b.String(), nil
+}
+
+func (s *Server) createWebhookTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		URL    string   `json:"url"`
+		Events []string `json:"events"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.URL == "" {
+		return "", fmt.Errorf("url is required")
+	}
+	wh := domain.Webhook{ID: id.New("wh"), URL: a.URL, Events: a.Events, Secret: id.New("whsec"), CreatedAt: s.now()}
+	if err := s.store.PutWebhook(wh); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Registered webhook %s → %s. Signing secret (shown only once): %s", wh.ID, wh.URL, wh.Secret), nil
+}
+
+func (s *Server) getCollectionTool(_ context.Context, args json.RawMessage) (string, error) {
+	var invID string
+	if err := json.Unmarshal(args, &struct {
+		InvoiceID *string `json:"invoice_id"`
+	}{&invID}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	col, ok, err := s.store.GetCollection(invID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("no collection for invoice %q (it may be paid, or never pushed to a processor)", invID)
+	}
+	msg := fmt.Sprintf("Collection for %s: status %s, %d attempt(s)", col.InvoiceID, col.Status, col.Attempts)
+	if col.LastReason != "" {
+		msg += fmt.Sprintf(", last failure: %s", col.LastReason)
+	}
+	if col.NextAttemptAt != nil {
+		msg += fmt.Sprintf(", next retry due %s", col.NextAttemptAt.Format(time.RFC3339))
+	}
+	return msg + ".", nil
 }
 
 // --- handlers (intent in; the engine/store does the work) ---

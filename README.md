@@ -66,6 +66,7 @@ docker compose up
 | `POST` | `/v1/invoices/{invoice_id}/collect` | **dunning** — attempt collection now (manual retry, e.g. after a card update) |
 | `GET`  | `/v1/invoices/{invoice_id}/collection` | inspect recovery state: every attempt, the decline reason, the next retry time |
 | `POST` | `/v1/dunning/run` | process every **due** collection — the endpoint a cron hits on a cadence |
+| `GET`  | `/v1/analytics` | account snapshot: revenue by currency, subscriptions, dunning recovery (computed live, never a cached counter) |
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |
@@ -107,7 +108,9 @@ Both expose typed, signature-verifying webhook handling (`verifyWebhook` / `veri
     "env": { "DATABASE_URL": "postgres://…" } } } }
 ```
 
-Tools are **intent-only**: `create_meter`, `create_plan`, `attach_plan`, `set_spend_cap`, `get_usage`, `preview_invoice`. There is deliberately **no `charge()` or `calculate_bill()`** — the agent passes intent; the deterministic engine computes every cent. A test asserts no money-math tool can ever be exposed.
+The agent can drive the **whole lifecycle**, not just setup: `create_customer`, `list_customers`, `create_meter`, `create_plan`, `attach_plan`, `set_spend_cap`, `create_webhook`, `get_usage`, `preview_invoice`, `simulate_plan_change`, `finalize_invoice`, `reconcile_invoice`, `get_collection`, and `get_analytics`. The intended path is **connect your agent and get billing done by talking** — for purists, every tool has a REST endpoint and SDK call too.
+
+All tools are **intent-only**: there is deliberately **no `charge()` or `calculate_bill()`** — the agent passes intent; the deterministic engine computes every cent. A test asserts no money-math tool can ever be exposed.
 
 ### Dashboard + free customer portal
 

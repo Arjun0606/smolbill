@@ -180,6 +180,27 @@ export interface DunningRunResult {
   checked_at: string;
 }
 
+export interface DunningAnalytics {
+  scheduled: number;
+  retrying: number;
+  requires_action: number;
+  recovered: number;
+  uncollectible: number;
+  amount_at_risk: Record<string, string>;
+  amount_recovered: Record<string, string>;
+  recovery_rate: string;
+}
+
+export interface Analytics {
+  generated_at: string;
+  customers: number;
+  active_subscriptions: number;
+  finalized_invoices: number;
+  projected_revenue: Record<string, string>;
+  finalized_revenue: Record<string, string>;
+  dunning: DunningAnalytics;
+}
+
 export interface WebhookEvent {
   id: string;
   type: string;
@@ -342,6 +363,11 @@ export class Smolbill {
   dunning = {
     // Process every due collection — the endpoint a cron hits on a cadence.
     run: () => this.request<DunningRunResult>("POST", "/v1/dunning/run"),
+  };
+
+  analytics = {
+    // Account-wide snapshot: revenue by currency, subscriptions, dunning recovery.
+    get: () => this.request<Analytics>("GET", "/v1/analytics"),
   };
 
   entitlements = {

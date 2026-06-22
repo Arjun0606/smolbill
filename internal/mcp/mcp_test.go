@@ -167,6 +167,58 @@ func TestFullIntentFlow(t *testing.T) {
 	}
 }
 
+// TestFullLifecycleByAI proves an agent can run the WHOLE thing over MCP with no
+// out-of-band setup: onboard a customer, configure billing, finalize the invoice,
+// catch drift, and read analytics. This is the "truly do everything by AI" claim.
+func TestFullLifecycleByAI(t *testing.T) {
+	s, _ := newSession(t)
+
+	cust, isErr := s.callTool("create_customer", map[string]any{"name": "Acme"})
+	if isErr {
+		t.Fatalf("create_customer: %s", cust)
+	}
+	custID := extractID(t, cust, "id ")
+
+	if list, _ := s.callTool("list_customers", nil); !strings.Contains(list, custID) {
+		t.Fatalf("list_customers missing %s: %q", custID, list)
+	}
+
+	s.callTool("create_meter", map[string]any{"code": "tokens", "name": "Tokens", "aggregation": "sum", "property_key": "n"})
+	planText, _ := s.callTool("create_plan", map[string]any{
+		"name": "Pro", "prices": []map[string]any{
+			{"model": "per_unit", "currency": "USD", "meter_code": "tokens", "unit_amount": "0.001"},
+		},
+	})
+	planID := extractID(t, planText, "id ")
+	attachText, isErr := s.callTool("attach_plan", map[string]any{"customer_id": custID, "plan_id": planID})
+	if isErr {
+		t.Fatalf("attach_plan: %s", attachText)
+	}
+	subID := extractID(t, attachText, "subscription ")
+
+	s.ingestTokens(custID, "e1", 3000) // usage arrives via the app path, $3.00
+
+	finText, isErr := s.callTool("finalize_invoice", map[string]any{"subscription_id": subID})
+	if isErr || !strings.Contains(finText, "$3.00") {
+		t.Fatalf("finalize_invoice = %q (isErr=%v)", finText, isErr)
+	}
+	invID := extractID(t, finText, "invoice ")
+
+	if rec, isErr := s.callTool("reconcile_invoice", map[string]any{"invoice_id": invID}); isErr || !strings.Contains(rec, "reconciles") {
+		t.Fatalf("reconcile (clean) = %q", rec)
+	}
+
+	// A late event lands after finalize — reconcile must catch the drift.
+	s.ingestTokens(custID, "late", 5000)
+	if rec, _ := s.callTool("reconcile_invoice", map[string]any{"invoice_id": invID}); !strings.Contains(rec, "DRIFT") {
+		t.Fatalf("reconcile should detect drift: %q", rec)
+	}
+
+	if an, isErr := s.callTool("get_analytics", nil); isErr || !strings.Contains(an, "customers: 1") {
+		t.Fatalf("get_analytics = %q", an)
+	}
+}
+
 func TestToolErrorIsInResultNotRPCError(t *testing.T) {
 	s, _ := newSession(t)
 	text, isErr := s.callTool("get_usage", map[string]any{"customer_id": "nobody"})
