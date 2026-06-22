@@ -138,3 +138,9 @@ CREATE TABLE IF NOT EXISTS reconciliation_ledger (
     computed_hash     TEXT NOT NULL,    -- matches invoice.Result.Hash
     computed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 2: metered entitlements need to know which meter measures usage.
+ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS meter_code TEXT;
+
+-- Phase 2: ledger is one row per invoice line; record which meter it traces.
+ALTER TABLE reconciliation_ledger ADD COLUMN IF NOT EXISTS meter_code TEXT;

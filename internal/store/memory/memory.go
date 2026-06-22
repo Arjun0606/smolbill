@@ -9,27 +9,34 @@ import (
 	"time"
 
 	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/id"
 )
 
 // Store holds all engine state in memory.
 type Store struct {
-	mu        sync.RWMutex
-	customers map[string]domain.Customer
-	meters    map[string]domain.Meter // keyed by meter code
-	plans     map[string]domain.Plan  // keyed by id
-	subs      map[string]domain.Subscription
-	events    []domain.Event
-	seenKeys  map[string]time.Time // idempotency_key -> ingestedAt
+	mu           sync.RWMutex
+	customers    map[string]domain.Customer
+	meters       map[string]domain.Meter // keyed by meter code
+	plans        map[string]domain.Plan  // keyed by id
+	subs         map[string]domain.Subscription
+	events       []domain.Event
+	seenKeys     map[string]time.Time            // idempotency_key -> ingestedAt
+	invoices     map[string]domain.Invoice       // keyed by id
+	ledger       map[string][]domain.LedgerRow   // invoice_id -> rows
+	entitlements map[string][]domain.Entitlement // customer_id -> entitlements
 }
 
 // New returns an empty store.
 func New() *Store {
 	return &Store{
-		customers: map[string]domain.Customer{},
-		meters:    map[string]domain.Meter{},
-		plans:     map[string]domain.Plan{},
-		subs:      map[string]domain.Subscription{},
-		seenKeys:  map[string]time.Time{},
+		customers:    map[string]domain.Customer{},
+		meters:       map[string]domain.Meter{},
+		plans:        map[string]domain.Plan{},
+		subs:         map[string]domain.Subscription{},
+		seenKeys:     map[string]time.Time{},
+		invoices:     map[string]domain.Invoice{},
+		ledger:       map[string][]domain.LedgerRow{},
+		entitlements: map[string][]domain.Entitlement{},
 	}
 }
 
@@ -122,4 +129,58 @@ func (s *Store) EventsForCustomer(customerID string) ([]domain.Event, error) {
 		}
 	}
 	return out, nil
+}
+
+// --- invoices + ledger ---
+
+func (s *Store) SaveFinalizedInvoice(inv domain.Invoice, ledger []domain.LedgerRow) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.invoices[inv.ID] = inv
+	rows := make([]domain.LedgerRow, len(ledger))
+	for i, r := range ledger {
+		if r.ID == "" {
+			r.ID = id.New("ldg")
+		}
+		r.InvoiceID = inv.ID
+		rows[i] = r
+	}
+	s.ledger[inv.ID] = rows
+	return nil
+}
+
+func (s *Store) GetInvoice(invID string) (domain.Invoice, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	inv, ok := s.invoices[invID]
+	return inv, ok, nil
+}
+
+func (s *Store) GetLedger(invoiceID string) ([]domain.LedgerRow, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]domain.LedgerRow(nil), s.ledger[invoiceID]...), nil
+}
+
+// --- entitlements ---
+
+func (s *Store) PutEntitlement(e domain.Entitlement) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.entitlements[e.CustomerID]
+	for i := range list {
+		if list[i].ID == e.ID || (list[i].Feature == e.Feature && e.ID == "") {
+			list[i] = e
+			s.entitlements[e.CustomerID] = list
+			return nil
+		}
+	}
+	s.entitlements[e.CustomerID] = append(list, e)
+	return nil
+}
+
+func (s *Store) EntitlementsForCustomer(customerID string) ([]domain.Entitlement, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]domain.Entitlement(nil), s.entitlements[customerID]...), nil
 }

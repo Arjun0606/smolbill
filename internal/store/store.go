@@ -39,4 +39,20 @@ type Store interface {
 
 	// EventsForCustomer returns all stored events for a customer.
 	EventsForCustomer(customerID string) ([]domain.Event, error)
+
+	// --- invoices + reconciliation ledger (Phase 2) ---
+
+	// SaveFinalizedInvoice persists an invoice, its lines, and the
+	// reconciliation ledger rows atomically. Ledger rows with empty IDs are
+	// assigned one. This is the write side of `/invoices/finalize`.
+	SaveFinalizedInvoice(inv domain.Invoice, ledger []domain.LedgerRow) error
+	// GetInvoice returns a stored invoice with its lines.
+	GetInvoice(id string) (domain.Invoice, bool, error)
+	// GetLedger returns the reconciliation ledger rows for an invoice.
+	GetLedger(invoiceID string) ([]domain.LedgerRow, error)
+
+	// --- entitlements (Phase 2) ---
+
+	PutEntitlement(e domain.Entitlement) error
+	EntitlementsForCustomer(customerID string) ([]domain.Entitlement, error)
 }

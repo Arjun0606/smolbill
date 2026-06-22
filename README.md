@@ -39,7 +39,30 @@ docker compose up
 | `POST` | `/v1/events` | **idempotent** usage ingest (dedup on `idempotency_key`) |
 | `GET`  | `/v1/usage/{customer_id}` | real-time usage + projected bill |
 | `POST` | `/v1/invoices/preview` | **deterministic** exact invoice + verification hash |
+| `POST` | `/v1/invoices/finalize` | materialize invoice + persist the reconciliation ledger |
+| `GET`  | `/v1/reconcile/{invoice_id}` | **THE HEADLINE** — prove the invoice still agrees with the live event log |
+| `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
+| `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `GET`  | `/healthz` | liveness |
+
+### The reconciliation ledger (the demo)
+
+Finalize an invoice, then ask `/v1/reconcile/{id}` whether it still holds:
+
+```jsonc
+// clean — HTTP 200
+{ "verdict": "consistent", "hash_match": true, "stored_total": "3.00", "live_total": "3.00" }
+
+// after a late event arrives post-finalize — HTTP 409
+{ "verdict": "drift_detected", "hash_match": false,
+  "stored_total": "3.00", "live_total": "8.00",
+  "diffs": ["invoice total 3.00 -> 8.00 (5.00 drift)"],
+  "lines": [{ "meter_code": "tokens",
+    "diffs": ["raw event count 1 -> 2 (+1, likely late/out-of-order events)",
+              "meter value 3000 -> 8000", "amount 3.00 -> 8.00"] }] }
+```
+
+The meter and the invoice can never *silently* disagree: at finalize we persist a ledger row per line (raw event count, meter value, line amount, verification hash); reconcile re-derives the same chain from current events and surfaces every difference.
 
 ### What's working underneath
 
@@ -50,6 +73,7 @@ docker compose up
 - **Ingest** (`internal/ingest`) — idempotent event acceptance on `idempotency_key` within a **published, configurable** dedup window; late / out-of-order events are accepted and attributed to their real `event_time`.
 - **Store** (`internal/store`) — one interface, two backends: `memory` (tests, demo) and `postgres` (pgx, embedded schema applied on connect). The engine never depends on a concrete DB.
 - **HTTP** (`internal/api`) — the `/v1` surface above, no web framework (net/http 1.22+ routing → single binary).
+- **Reconcile** (`internal/reconcile`) — pure diff of stored ledger vs. live recompute; the proof behind `/v1/reconcile`.
 - **Schema** (`migrations/0001_init.sql`) — the full v0 Postgres data model from the build plan §8.
 
 ## Run it
@@ -75,9 +99,10 @@ Postgres integration tests run when `SMOLBILL_TEST_DATABASE_URL` is set; otherwi
 
 ## Roadmap
 
-- **Phase 1 — deterministic core** ✅ (this)
-- **Phase 2 — reconciliation ledger + entitlements** (`GET /reconcile/{invoice}`)
-- **Phase 3 — Stripe push + spend alerts (50/80/100%)**
+- **Phase 1 — deterministic core** ✅
+- **Phase 1+ — Postgres backend + `/v1` HTTP API** ✅
+- **Phase 2 — reconciliation ledger + entitlements** ✅ (`GET /reconcile/{invoice}`)
+- **Phase 3 — Stripe push + spend alerts (50/80/100%)** ← next
 - **Phase 4 — dashboard + free customer wallet/portal**
 - **Phase 5 — MCP server (thin, intent-only)**
 - **Phase 6 — single-binary release + Show HN**

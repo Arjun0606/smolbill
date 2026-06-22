@@ -348,7 +348,192 @@ func (s *Store) EventsForCustomer(customerID string) ([]domain.Event, error) {
 	return out, rows.Err()
 }
 
+// --- invoices + reconciliation ledger ---
+
+func (s *Store) SaveFinalizedInvoice(inv domain.Invoice, ledger []domain.LedgerRow) error {
+	if inv.ID == "" {
+		inv.ID = id.New("inv")
+	}
+	tx, err := s.pool.Begin(s.ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: SaveFinalizedInvoice begin: %w", err)
+	}
+	defer tx.Rollback(s.ctx)
+
+	if _, err := tx.Exec(s.ctx,
+		`INSERT INTO invoices (id, customer_id, subscription_id, period_start, period_end, status, stripe_invoice_id, total, currency)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9)`,
+		inv.ID, inv.CustomerID, inv.SubscriptionID, inv.PeriodStart, inv.PeriodEnd,
+		inv.Status, nullStr(inv.StripeInvoiceID), inv.Total.String(), inv.Currency,
+	); err != nil {
+		return fmt.Errorf("postgres: insert invoice: %w", err)
+	}
+	for _, l := range inv.Lines {
+		lineID := l.ID
+		if lineID == "" {
+			lineID = id.New("line")
+		}
+		if _, err := tx.Exec(s.ctx,
+			`INSERT INTO invoice_lines (id, invoice_id, meter_code, quantity, unit_price, amount, ledger_ref)
+			 VALUES ($1,$2,$3,$4::numeric,$5::numeric,$6::numeric,$7)`,
+			lineID, inv.ID, nullStr(l.MeterCode), l.Quantity.String(), l.UnitPrice.String(), l.Amount.String(), nullStr(l.LedgerRef),
+		); err != nil {
+			return fmt.Errorf("postgres: insert invoice line: %w", err)
+		}
+	}
+	for _, r := range ledger {
+		rowID := r.ID
+		if rowID == "" {
+			rowID = id.New("ldg")
+		}
+		computedAt := r.ComputedAt
+		if computedAt.IsZero() {
+			computedAt = time.Now().UTC()
+		}
+		var diffs []byte
+		if len(r.Diffs) > 0 {
+			diffs, _ = json.Marshal(r.Diffs)
+		}
+		if _, err := tx.Exec(s.ctx,
+			`INSERT INTO reconciliation_ledger (id, invoice_id, meter_code, raw_event_count, meter_value, entitlement_state, invoice_line_amount, diffs, computed_hash, computed_at)
+			 VALUES ($1,$2,$3,$4,$5::numeric,$6,$7::numeric,$8,$9,$10)`,
+			rowID, inv.ID, nullStr(r.MeterCode), r.RawEventCount, r.MeterValue.String(), nil, r.InvoiceLineAmount.String(),
+			nullJSON(diffs), r.ComputedHash, computedAt,
+		); err != nil {
+			return fmt.Errorf("postgres: insert ledger row: %w", err)
+		}
+	}
+	return tx.Commit(s.ctx)
+}
+
+func (s *Store) GetInvoice(invID string) (domain.Invoice, bool, error) {
+	var inv domain.Invoice
+	var stripeID *string
+	var total *string
+	err := s.pool.QueryRow(s.ctx,
+		`SELECT id, customer_id, subscription_id, period_start, period_end, status, stripe_invoice_id, total::text, currency
+		 FROM invoices WHERE id = $1`, invID,
+	).Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd,
+		&inv.Status, &stripeID, &total, &inv.Currency)
+	if err == pgx.ErrNoRows {
+		return domain.Invoice{}, false, nil
+	}
+	if err != nil {
+		return domain.Invoice{}, false, fmt.Errorf("postgres: GetInvoice: %w", err)
+	}
+	inv.StripeInvoiceID = derefStr(stripeID)
+	inv.Total = parseDec(total)
+
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, meter_code, quantity::text, unit_price::text, amount::text, ledger_ref
+		 FROM invoice_lines WHERE invoice_id = $1 ORDER BY id`, invID)
+	if err != nil {
+		return domain.Invoice{}, false, fmt.Errorf("postgres: GetInvoice lines: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var l domain.InvoiceLine
+		var meterCode, qty, unit, amt, ledgerRef *string
+		if err := rows.Scan(&l.ID, &meterCode, &qty, &unit, &amt, &ledgerRef); err != nil {
+			return domain.Invoice{}, false, fmt.Errorf("postgres: scan line: %w", err)
+		}
+		l.MeterCode = derefStr(meterCode)
+		l.Quantity = parseDec(qty)
+		l.UnitPrice = parseDec(unit)
+		l.Amount = parseDec(amt)
+		l.LedgerRef = derefStr(ledgerRef)
+		inv.Lines = append(inv.Lines, l)
+	}
+	return inv, true, rows.Err()
+}
+
+func (s *Store) GetLedger(invoiceID string) ([]domain.LedgerRow, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, invoice_id, meter_code, raw_event_count, meter_value::text, invoice_line_amount::text, diffs, computed_hash, computed_at
+		 FROM reconciliation_ledger WHERE invoice_id = $1 ORDER BY id`, invoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: GetLedger: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.LedgerRow
+	for rows.Next() {
+		var r domain.LedgerRow
+		var meterCode, mv, amt *string
+		var diffs []byte
+		if err := rows.Scan(&r.ID, &r.InvoiceID, &meterCode, &r.RawEventCount, &mv, &amt, &diffs, &r.ComputedHash, &r.ComputedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan ledger: %w", err)
+		}
+		r.MeterCode = derefStr(meterCode)
+		r.MeterValue = parseDec(mv)
+		r.InvoiceLineAmount = parseDec(amt)
+		if len(diffs) > 0 {
+			_ = json.Unmarshal(diffs, &r.Diffs)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// --- entitlements ---
+
+func (s *Store) PutEntitlement(e domain.Entitlement) error {
+	if e.ID == "" {
+		e.ID = id.New("ent")
+	}
+	_, err := s.pool.Exec(s.ctx,
+		`INSERT INTO entitlements (id, customer_id, feature, kind, meter_code, limit_value, used_value, period_start, period_end)
+		 VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8,$9)
+		 ON CONFLICT (id) DO UPDATE SET limit_value = EXCLUDED.limit_value, meter_code = EXCLUDED.meter_code,
+		   period_start = EXCLUDED.period_start, period_end = EXCLUDED.period_end`,
+		e.ID, e.CustomerID, e.Feature, string(e.Kind), nullStr(e.MeterCode),
+		e.LimitValue.String(), e.UsedValue.String(), nullTime(e.PeriodStart), nullTime(e.PeriodEnd),
+	)
+	if err != nil {
+		return fmt.Errorf("postgres: PutEntitlement: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) EntitlementsForCustomer(customerID string) ([]domain.Entitlement, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, customer_id, feature, kind, meter_code, limit_value::text, used_value::text, period_start, period_end
+		 FROM entitlements WHERE customer_id = $1 ORDER BY feature`, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: EntitlementsForCustomer: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Entitlement
+	for rows.Next() {
+		var e domain.Entitlement
+		var kind string
+		var meterCode, limit, used *string
+		var ps, pe *time.Time
+		if err := rows.Scan(&e.ID, &e.CustomerID, &e.Feature, &kind, &meterCode, &limit, &used, &ps, &pe); err != nil {
+			return nil, fmt.Errorf("postgres: scan entitlement: %w", err)
+		}
+		e.Kind = domain.EntitlementKind(kind)
+		e.MeterCode = derefStr(meterCode)
+		e.LimitValue = parseDec(limit)
+		e.UsedValue = parseDec(used)
+		if ps != nil {
+			e.PeriodStart = *ps
+		}
+		if pe != nil {
+			e.PeriodEnd = *pe
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // --- helpers ---
+
+func nullTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
 
 func nullStr(s string) *string {
 	if s == "" {

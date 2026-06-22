@@ -25,7 +25,7 @@ func testStore(t *testing.T) *Store {
 	}
 	t.Cleanup(st.Close)
 	// Clean slate for repeatable runs.
-	for _, tbl := range []string{"events", "prices", "subscriptions", "plans", "meters", "customers"} {
+	for _, tbl := range []string{"reconciliation_ledger", "invoice_lines", "invoices", "entitlements", "events", "prices", "subscriptions", "plans", "meters", "customers"} {
 		if _, err := st.pool.Exec(context.Background(), "DELETE FROM "+tbl); err != nil {
 			t.Fatalf("cleanup %s: %v", tbl, err)
 		}
@@ -115,5 +115,95 @@ func TestPostgresIdempotentIngest(t *testing.T) {
 	}
 	if len(evs) != 1 || evs[0].Properties["n"] == nil {
 		t.Fatalf("event/properties did not round-trip: %+v", evs)
+	}
+}
+
+func TestPostgresFinalizeAndLedger(t *testing.T) {
+	st := testStore(t)
+	if err := st.PutCustomer(domain.Customer{ID: "cus_f", Name: "F"}); err != nil {
+		t.Fatal(err)
+	}
+	// Invoices FK to subscriptions, which FK to plans — set them up first.
+	if err := st.PutPlan(domain.Plan{ID: "plan_f", Name: "F", Version: 1, Prices: []domain.Price{
+		{Model: domain.ModelFlat, Currency: "USD", FlatAmount: d("49.00")},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutSubscription(domain.Subscription{
+		ID: "sub_f", CustomerID: "cus_f", PlanID: "plan_f", PlanVersion: 1, Status: domain.SubActive,
+		CurrentPeriodStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		CurrentPeriodEnd:   time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inv := domain.Invoice{
+		ID: "inv_f", CustomerID: "cus_f", SubscriptionID: "sub_f",
+		PeriodStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Status:      "finalized", Total: d("64.00"), Currency: "USD",
+		Lines: []domain.InvoiceLine{
+			{MeterCode: "tokens", Quantity: d("15000"), UnitPrice: d("0.001"), Amount: d("15.00")},
+			{MeterCode: "", Quantity: d("1"), UnitPrice: d("49.00"), Amount: d("49.00")},
+		},
+	}
+	ledger := []domain.LedgerRow{
+		{MeterCode: "tokens", RawEventCount: 2, MeterValue: d("15000"), InvoiceLineAmount: d("15.00"), ComputedHash: "abc123"},
+		{MeterCode: "", RawEventCount: 0, MeterValue: d("1"), InvoiceLineAmount: d("49.00"), ComputedHash: "abc123"},
+	}
+	if err := st.SaveFinalizedInvoice(inv, ledger); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok, err := st.GetInvoice("inv_f")
+	if err != nil || !ok {
+		t.Fatalf("GetInvoice ok=%v err=%v", ok, err)
+	}
+	if !got.Total.Equal(d("64.00")) || len(got.Lines) != 2 {
+		t.Fatalf("invoice round-trip wrong: total=%s lines=%d", got.Total, len(got.Lines))
+	}
+
+	rows, err := st.GetLedger("inv_f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("ledger rows = %d, want 2", len(rows))
+	}
+	if rows[0].ComputedHash != "abc123" {
+		t.Fatalf("ledger hash not persisted: %+v", rows[0])
+	}
+	// meter_code MUST round-trip — reconcile joins ledger to live lines by it.
+	byMeter := map[string]domain.LedgerRow{}
+	for _, r := range rows {
+		byMeter[r.MeterCode] = r
+	}
+	if _, ok := byMeter["tokens"]; !ok {
+		t.Fatalf("ledger lost meter_code; rows=%+v", rows)
+	}
+	if !byMeter["tokens"].MeterValue.Equal(d("15000")) {
+		t.Fatalf("tokens ledger row meter_value = %s, want 15000", byMeter["tokens"].MeterValue)
+	}
+}
+
+func TestPostgresEntitlementRoundTrip(t *testing.T) {
+	st := testStore(t)
+	if err := st.PutCustomer(domain.Customer{ID: "cus_e", Name: "E"}); err != nil {
+		t.Fatal(err)
+	}
+	e := domain.Entitlement{
+		ID: "ent_1", CustomerID: "cus_e", Feature: "tokens", Kind: domain.EntMetered,
+		MeterCode: "tokens", LimitValue: d("10000"),
+		PeriodStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := st.PutEntitlement(e); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.EntitlementsForCustomer("cus_e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].LimitValue.Equal(d("10000")) || got[0].MeterCode != "tokens" {
+		t.Fatalf("entitlement round-trip wrong: %+v", got)
 	}
 }

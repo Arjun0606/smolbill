@@ -48,6 +48,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/events", s.ingestEvent)
 	mux.HandleFunc("GET /v1/usage/{customer_id}", s.usage)
 	mux.HandleFunc("POST /v1/invoices/preview", s.previewInvoice)
+	mux.HandleFunc("POST /v1/invoices/finalize", s.finalizeInvoice)
+	mux.HandleFunc("GET /v1/reconcile/{invoice_id}", s.reconcileInvoice)
+	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
+	mux.HandleFunc("GET /v1/entitlements/{customer_id}", s.getEntitlements)
 	return mux
 }
 
