@@ -7,6 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/engine"
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/invoice"
 	"github.com/Arjun0606/smolbill/internal/meter"
@@ -132,7 +133,7 @@ func (s *Server) recomputeForInvoice(inv domain.Invoice) (invoice.Result, error)
 		return invoice.Result{}, err
 	}
 	if !ok {
-		return invoice.Result{}, errNoActiveSub
+		return invoice.Result{}, engine.ErrNoActiveSub
 	}
 	// Pin the window to the invoice's period.
 	sub.CurrentPeriodStart = inv.PeriodStart

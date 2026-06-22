@@ -17,6 +17,7 @@ import (
 
 	"github.com/Arjun0606/smolbill/internal/alerts"
 	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/engine"
 	"github.com/Arjun0606/smolbill/internal/id"
 	"github.com/Arjun0606/smolbill/internal/ingest"
 	"github.com/Arjun0606/smolbill/internal/invoice"
@@ -164,61 +165,18 @@ func (s *Server) createMeter(w http.ResponseWriter, r *http.Request) {
 
 // --- plans ---
 
-type tierReq struct {
-	UpTo       *string `json:"up_to"` // decimal string or null for the unbounded final tier
-	UnitAmount string  `json:"unit_amount"`
-	FlatAmount string  `json:"flat_amount"`
-}
-
-type priceReq struct {
-	MeterCode  string    `json:"meter_code"`
-	Model      string    `json:"model"`
-	Currency   string    `json:"currency"`
-	UnitAmount string    `json:"unit_amount"`
-	FlatAmount string    `json:"flat_amount"`
-	Tiers      []tierReq `json:"tiers"`
-}
-
-type planReq struct {
-	Name    string     `json:"name"`
-	Version int        `json:"version"`
-	Prices  []priceReq `json:"prices"`
-}
-
 func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
-	var req planReq
-	if err := decodeBody(r, &req); err != nil {
+	var in engine.PlanInput
+	if err := decodeBody(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Name == "" || len(req.Prices) == 0 {
-		writeErr(w, http.StatusBadRequest, "name and at least one price are required")
+	plan, err := engine.BuildPlan(in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Version == 0 {
-		req.Version = 1
-	}
-	plan := domain.Plan{ID: id.New("plan"), Name: req.Name, Version: req.Version, CreatedAt: s.now()}
-	for _, pr := range req.Prices {
-		price := domain.Price{
-			ID: id.New("price"), MeterCode: pr.MeterCode,
-			Model: domain.PriceModel(pr.Model), Currency: pr.Currency,
-			UnitAmount: parseDecOr0(pr.UnitAmount), FlatAmount: parseDecOr0(pr.FlatAmount),
-		}
-		for _, t := range pr.Tiers {
-			tier := domain.Tier{UnitAmount: parseDecOr0(t.UnitAmount), FlatAmount: parseDecOr0(t.FlatAmount)}
-			if t.UpTo != nil {
-				v, err := decimal.NewFromString(*t.UpTo)
-				if err != nil {
-					writeErr(w, http.StatusBadRequest, "invalid tier up_to: "+*t.UpTo)
-					return
-				}
-				tier.UpTo = &v
-			}
-			price.Tiers = append(price.Tiers, tier)
-		}
-		plan.Prices = append(plan.Prices, price)
-	}
+	plan.CreatedAt = s.now()
 	if err := s.store.PutPlan(plan); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -393,47 +351,19 @@ func (s *Server) previewInvoice(w http.ResponseWriter, r *http.Request) {
 
 // --- shared computation ---
 
+// compute and computeForActiveSub delegate to the shared engine so the REST API
+// and the MCP server use one code path.
 func (s *Server) computeForActiveSub(customerID string) (invoice.Result, domain.Subscription, error) {
-	subs, err := s.store.SubscriptionsForCustomer(customerID)
-	if err != nil {
-		return invoice.Result{}, domain.Subscription{}, err
-	}
-	for _, sub := range subs {
-		if sub.Status == domain.SubActive {
-			res, err := s.compute(sub)
-			return res, sub, err
-		}
-	}
-	return invoice.Result{}, domain.Subscription{}, errNoActiveSub
+	return engine.ComputeForActiveSub(s.store, customerID)
 }
 
 func (s *Server) compute(sub domain.Subscription) (invoice.Result, error) {
-	plan, ok, err := s.store.GetPlan(sub.PlanID)
-	if err != nil {
-		return invoice.Result{}, err
-	}
-	if !ok {
-		return invoice.Result{}, errPlanGone
-	}
-	meters, err := s.store.Meters()
-	if err != nil {
-		return invoice.Result{}, err
-	}
-	events, err := s.store.EventsForCustomer(sub.CustomerID)
-	if err != nil {
-		return invoice.Result{}, err
-	}
-	return invoice.Calculate(sub, plan, meters, events)
+	return engine.Compute(s.store, sub)
 }
-
-var (
-	errNoActiveSub = errors.New("no active subscription for customer")
-	errPlanGone    = errors.New("subscription references a missing plan")
-)
 
 func (s *Server) writeComputeErr(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, errNoActiveSub):
+	case errors.Is(err, engine.ErrNoActiveSub):
 		writeErr(w, http.StatusNotFound, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())

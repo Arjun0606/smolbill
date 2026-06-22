@@ -1,6 +1,7 @@
-// Command smolbill is the engine binary. Two subcommands:
+// Command smolbill is the engine binary. Subcommands:
 //
 //	smolbill serve   run the HTTP /v1 API (Postgres if DATABASE_URL is set, else in-memory)
+//	smolbill mcp     run the intent-only MCP server over stdio (for Claude/Cursor/agents)
 //	smolbill demo    run the end-to-end deterministic pipeline walkthrough (no DB)
 //
 // One static binary, Postgres-only, no Kafka/ClickHouse/Temporal (build plan §6 #6).
@@ -21,6 +22,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/ingest"
 	"github.com/Arjun0606/smolbill/internal/invoice"
+	"github.com/Arjun0606/smolbill/internal/mcp"
 	"github.com/Arjun0606/smolbill/internal/payments/stripe"
 	"github.com/Arjun0606/smolbill/internal/store"
 	"github.com/Arjun0606/smolbill/internal/store/memory"
@@ -35,6 +37,10 @@ func main() {
 	switch cmd {
 	case "serve":
 		if err := runServe(); err != nil {
+			log.Fatal(err)
+		}
+	case "mcp":
+		if err := runMCP(); err != nil {
 			log.Fatal(err)
 		}
 	case "demo":
@@ -52,35 +58,40 @@ func usage() {
 	fmt.Println()
 	fmt.Println("usage:")
 	fmt.Println("  smolbill serve   run the HTTP /v1 API")
+	fmt.Println("  smolbill mcp     run the MCP server over stdio (for Claude/Cursor/agents)")
 	fmt.Println("  smolbill demo    run the deterministic pipeline demo (no DB)")
 	fmt.Println()
 	fmt.Println("env:")
-	fmt.Println("  DATABASE_URL   postgres DSN; if unset, serve uses an in-memory store")
-	fmt.Println("  ADDR           listen address (default :8080)")
+	fmt.Println("  DATABASE_URL   postgres DSN; if unset, uses an in-memory store")
+	fmt.Println("  ADDR           HTTP listen address (default :8080)")
 }
 
-// runServe boots the HTTP API. With DATABASE_URL set it uses Postgres (and
-// applies the embedded schema); otherwise it falls back to in-memory so a fresh
-// clone can `serve` with zero setup.
+// openStore builds the store from DATABASE_URL (Postgres) or falls back to
+// in-memory. Logs go to stderr so the MCP stdio stream on stdout stays clean.
+func openStore() (store.Store, func(), error) {
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		pg, err := postgres.New(context.Background(), dsn)
+		if err != nil {
+			return nil, nil, err
+		}
+		log.Printf("smolbill: using Postgres store")
+		return pg, pg.Close, nil
+	}
+	log.Printf("smolbill: DATABASE_URL unset — using in-memory store (data is not persisted)")
+	return memory.New(), func() {}, nil
+}
+
+// runServe boots the HTTP API.
 func runServe() error {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
-
-	var st store.Store
-	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		pg, err := postgres.New(context.Background(), dsn)
-		if err != nil {
-			return err
-		}
-		defer pg.Close()
-		st = pg
-		log.Printf("smolbill: using Postgres store")
-	} else {
-		st = memory.New()
-		log.Printf("smolbill: DATABASE_URL unset — using in-memory store (data is not persisted)")
+	st, closeStore, err := openStore()
+	if err != nil {
+		return err
 	}
+	defer closeStore()
 
 	srv := api.New(st, ingest.New(st, 0), nil)
 
@@ -95,6 +106,18 @@ func runServe() error {
 
 	log.Printf("smolbill: listening on %s (dedup window %s)", addr, ingest.DefaultDedupWindow)
 	return http.ListenAndServe(addr, srv.Handler())
+}
+
+// runMCP serves the intent-only MCP tool surface over stdio. All logging goes to
+// stderr; stdout carries only JSON-RPC.
+func runMCP() error {
+	st, closeStore, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer closeStore()
+	log.Printf("smolbill: MCP server ready on stdio")
+	return mcp.New(st, ingest.New(st, 0), nil).Serve(context.Background(), os.Stdin, os.Stdout)
 }
 
 func dec(s string) decimal.Decimal {

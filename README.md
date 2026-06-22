@@ -52,6 +52,18 @@ docker compose up
 | `GET`  | `/portal/{customer_id}` | **free embeddable customer portal** (usage, bill, wallet) |
 | `GET`  | `/healthz` | liveness |
 
+### MCP server (AI sets the rule)
+
+`smolbill mcp` serves a Model Context Protocol server over stdio so an agent (Claude, Cursor) can configure billing in plain language:
+
+```jsonc
+// claude_desktop_config.json
+{ "mcpServers": { "smolbill": { "command": "smolbill", "args": ["mcp"],
+    "env": { "DATABASE_URL": "postgres://…" } } } }
+```
+
+Tools are **intent-only**: `create_meter`, `create_plan`, `attach_plan`, `set_spend_cap`, `get_usage`, `preview_invoice`. There is deliberately **no `charge()` or `calculate_bill()`** — the agent passes intent; the deterministic engine computes every cent. A test asserts no money-math tool can ever be exposed.
+
 ### Dashboard + free customer portal
 
 The whole UI is server-rendered HTML embedded in the single binary (no Next.js, no build step, no framework) — visit `/dashboard`. The embeddable **customer portal** at `/portal/{id}` shows a customer their live usage, projected bill, wallet balance, and entitlement limits, with a subtle "metered by smolbill" footer. This is the feature Lago charges ~$1,500/mo for, given away in the OSS core (and a built-in distribution loop).
@@ -93,6 +105,8 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, `stripe` thin client (exact cents, idempotency), `fake` test double.
 - **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
 - **Web** (`internal/api/web.go` + `templates/`) — server-rendered dashboard, reconcile view, and embeddable customer portal; HTML embedded via `go:embed` (single binary).
+- **Engine** (`internal/engine`) — shared compute + plan-building used by both the REST API and the MCP server, so the two can never disagree.
+- **MCP** (`internal/mcp`) — intent-only MCP server over stdio (no SDK); the agent sets rules, never touches money math.
 - **Schema** (`migrations/0001_init.sql`) — the full v0 Postgres data model from the build plan §8.
 
 ## Run it
@@ -123,8 +137,8 @@ Postgres integration tests run when `SMOLBILL_TEST_DATABASE_URL` is set; otherwi
 - **Phase 2 — reconciliation ledger + entitlements** ✅ (`GET /reconcile/{invoice}`)
 - **Phase 3 — Stripe push + spend alerts (50/80/100%)** ✅
 - **Phase 4 — dashboard + free customer wallet/portal** ✅
-- **Phase 5 — MCP server (thin, intent-only)** ← next
-- **Phase 6 — single-binary release + Show HN**
+- **Phase 5 — MCP server (thin, intent-only)** ✅
+- **Phase 6 — single-binary release + Show HN** ← next
 
 ## License
 
