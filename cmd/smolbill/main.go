@@ -29,12 +29,17 @@ import (
 	"github.com/Arjun0606/smolbill/internal/store/postgres"
 )
 
+// version is stamped by GoReleaser at build time (-X main.version=...).
+var version = "dev"
+
 func main() {
 	cmd := ""
 	if len(os.Args) >= 2 {
 		cmd = os.Args[1]
 	}
 	switch cmd {
+	case "version", "-v", "--version":
+		fmt.Println("smolbill", version)
 	case "serve":
 		if err := runServe(); err != nil {
 			log.Fatal(err)

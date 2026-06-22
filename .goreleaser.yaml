@@ -1,0 +1,50 @@
+# GoReleaser builds the single static binary for every platform and cuts a
+# GitHub release on each tag. Run locally with `goreleaser release --clean`
+# (needs a tag) or `goreleaser build --snapshot --clean` to test builds.
+version: 2
+
+project_name: smolbill
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: smolbill
+    main: ./cmd/smolbill
+    binary: smolbill
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: smolbill
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: Arjun0606
+    name: smolbill
+  header: |
+    ## smolbill {{ .Tag }}
+    The open-source usage-billing engine where your meter and your invoice provably never disagree.
+    Single binary, Postgres-only, flat-priced, on top of Stripe, never a Merchant of Record.
