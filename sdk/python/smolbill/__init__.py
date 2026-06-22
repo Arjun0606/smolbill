@@ -266,6 +266,19 @@ class _Dunning:
         """Process every due collection — the endpoint a cron hits on a cadence."""
         return self._c._request("POST", "/v1/dunning/run")
 
+    def templates(self) -> Any:
+        """The customer-facing dunning copy — yours to read, edit, and preview."""
+        return self._c._request("GET", "/v1/dunning/templates")
+
+    def set_template(self, event: str, *, subject: str, body: str) -> Any:
+        """Override the copy for one dunning event."""
+        return self._c._request("PUT", f"/v1/dunning/templates/{urllib.parse.quote(event)}",
+                                 {"subject": subject, "body": body})
+
+    def preview(self, event: str, *, context: dict[str, Any] | None = None) -> Any:
+        """Render a dunning message (the live preview)."""
+        return self._c._request("POST", "/v1/dunning/preview", _clean({"event": event, "context": context}))
+
 
 class _Analytics:
     def __init__(self, c: Smolbill) -> None:

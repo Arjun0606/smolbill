@@ -67,6 +67,9 @@ docker compose up
 | `GET`  | `/v1/invoices/{invoice_id}/collection` | inspect recovery state: every attempt, the decline reason, the next retry time |
 | `POST` | `/v1/dunning/run` | process every **due** collection — the endpoint a cron hits on a cadence |
 | `GET`  | `/v1/analytics` | account snapshot: revenue by currency, subscriptions, dunning recovery (computed live, never a cached counter) |
+| `GET`  | `/v1/dunning/templates` | the customer-facing dunning copy (your override or the default) — **yours to read and edit** |
+| `PUT`  | `/v1/dunning/templates/{event}` | override the copy for one event (validated to render before saving) |
+| `POST` | `/v1/dunning/preview` | **live preview** a rendered dunning message — the opposite of a MoR that hides the emails |
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |
@@ -165,6 +168,7 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
 - **Webhooks** (`internal/webhook`) — signed (HMAC-SHA256, `X-Smolbill-Signature`) outbound delivery of lifecycle events (`invoice.finalized`, `drift.detected`, plus the dunning events below); fired on finalize and on every drift the reconciler catches, best-effort so a slow endpoint never blocks billing.
 - **Dunning** (`internal/dunning`) — the pure failed-payment-recovery state machine: a configurable retry `Schedule` (default +2h/+1d/+3d/+5d/+7d, grounded in Recurly's 40M-transaction data) and decline-reason routing (`Classify`) so hard declines and SCA challenges stop instead of retrying. Drives `invoice.payment_failed` / `invoice.recovered` / `invoice.action_required` / `invoice.uncollectible` webhooks. No clock of its own — every transition is unit-tested.
+- **Comms** (`internal/comms`) — the branded, escalating dunning copy, rendered per event. Templates are **yours to read, edit, and preview** (default copy built in; overrides stored), and the rendered subject+body rides in every dunning webhook so your ESP/SMS just sends it. This inverts the merchant-of-record black box that hides the emails from you.
 - **Web** (`internal/api/web.go` + `templates/`) — server-rendered dashboard, reconcile view, and embeddable customer portal; HTML embedded via `go:embed` (single binary).
 - **Engine** (`internal/engine`) — shared compute + plan-building used by both the REST API and the MCP server, so the two can never disagree.
 - **MCP** (`internal/mcp`) — intent-only MCP server over stdio (no SDK); the agent sets rules, never touches money math.

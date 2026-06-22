@@ -685,6 +685,34 @@ func (s *Store) CollectionsDue(now time.Time) ([]domain.Collection, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) PutMessageTemplate(t domain.MessageTemplate) error {
+	_, err := s.pool.Exec(s.ctx,
+		`INSERT INTO message_templates (event, subject, body, updated_at) VALUES ($1,$2,$3, now())
+		 ON CONFLICT (event) DO UPDATE SET subject = EXCLUDED.subject, body = EXCLUDED.body, updated_at = now()`,
+		t.Event, t.Subject, t.Body)
+	if err != nil {
+		return fmt.Errorf("postgres: PutMessageTemplate: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) MessageTemplates() ([]domain.MessageTemplate, error) {
+	rows, err := s.pool.Query(s.ctx, `SELECT event, subject, body, updated_at FROM message_templates ORDER BY event`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: MessageTemplates: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.MessageTemplate
+	for rows.Next() {
+		var t domain.MessageTemplate
+		if err := rows.Scan(&t.Event, &t.Subject, &t.Body, &t.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan template: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) Collections() ([]domain.Collection, error) {
 	rows, err := s.pool.Query(s.ctx,
 		`SELECT invoice_id, external_id, status, attempts, first_failed_at, next_attempt_at, last_reason, currency, amount_minor, updated_at

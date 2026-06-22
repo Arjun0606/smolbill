@@ -181,3 +181,11 @@ CREATE TABLE IF NOT EXISTS collections (
 );
 -- Index the due-collections scan (the dunning tick): status + when the retry fires.
 CREATE INDEX IF NOT EXISTS idx_collections_due ON collections (status, next_attempt_at);
+
+-- Phase 10: operator overrides of dunning message copy (one row per event).
+CREATE TABLE IF NOT EXISTS message_templates (
+    event      TEXT PRIMARY KEY, -- payment_failed|requires_action|recovered|uncollectible
+    subject    TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

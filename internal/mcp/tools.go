@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/Arjun0606/smolbill/internal/alerts"
+	"github.com/Arjun0606/smolbill/internal/comms"
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
@@ -250,6 +251,28 @@ func (s *Server) buildTools() []tool {
 			description: "Process every collection whose retry is due (the dunning tick). Requires a configured processor. Returns how many were processed and their outcomes.",
 			inputSchema: obj(map[string]any{}),
 			handler:     s.runDunningTool,
+		},
+		{
+			name:        "get_dunning_templates",
+			description: "List the customer-facing dunning copy for each event (payment_failed, requires_action, recovered, uncollectible) — the operator's override or the built-in default.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.getDunningTemplatesTool,
+		},
+		{
+			name:        "preview_dunning_message",
+			description: "Render a dunning message for an event with sample data — the live preview of exactly what a customer would receive.",
+			inputSchema: obj(map[string]any{"event": str("payment_failed|requires_action|recovered|uncollectible")}, "event"),
+			handler:     s.previewDunningMessageTool,
+		},
+		{
+			name:        "set_dunning_template",
+			description: "Override the customer-facing copy for one dunning event. Validated to render before saving. Body fields: {{.CustomerName}}, {{.Amount}}, {{.Currency}}, {{.NextAttempt}}, {{.Reason}}, {{.UpdateURL}}.",
+			inputSchema: obj(map[string]any{
+				"event":   str("payment_failed|requires_action|recovered|uncollectible"),
+				"subject": str("message subject"),
+				"body":    str("message body, with template fields"),
+			}, "event", "subject", "body"),
+			handler: s.setDunningTemplateTool,
 		},
 		{
 			name:        "get_started",
@@ -777,6 +800,87 @@ func nilTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+func (s *Server) loadTemplatesMCP() map[comms.Event]comms.Template {
+	out := map[comms.Event]comms.Template{}
+	tmpls, _ := s.store.MessageTemplates()
+	for _, t := range tmpls {
+		out[comms.Event(t.Event)] = comms.Template{Subject: t.Subject, Body: t.Body}
+	}
+	return out
+}
+
+func sampleCommsCtx() comms.Context {
+	return comms.Context{
+		CustomerName: "Acme Inc", InvoiceID: "inv_demo", Amount: "64.00", Currency: "USD",
+		Attempts: 2, NextAttempt: "2026-06-25", Reason: "insufficient_funds", UpdateURL: "https://your-app.com/billing",
+	}
+}
+
+func validCommsEvent(e string) bool {
+	for _, a := range comms.AllEvents {
+		if string(a) == e {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) getDunningTemplatesTool(_ context.Context, _ json.RawMessage) (string, error) {
+	ov := s.loadTemplatesMCP()
+	var b strings.Builder
+	b.WriteString("Dunning message templates:\n")
+	for _, e := range comms.AllEvents {
+		t := comms.For(e, ov)
+		tag := "default"
+		if _, custom := ov[e]; custom {
+			tag = "customized"
+		}
+		fmt.Fprintf(&b, "  • %s (%s): %q\n", e, tag, t.Subject)
+	}
+	return b.String(), nil
+}
+
+func (s *Server) previewDunningMessageTool(_ context.Context, args json.RawMessage) (string, error) {
+	var ev string
+	if err := json.Unmarshal(args, &struct {
+		Event *string `json:"event"`
+	}{&ev}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if !validCommsEvent(ev) {
+		return "", fmt.Errorf("unknown event; one of payment_failed|requires_action|recovered|uncollectible")
+	}
+	msg, err := comms.Render(comms.For(comms.Event(ev), s.loadTemplatesMCP()), sampleCommsCtx())
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Subject: %s\n\n%s", msg.Subject, msg.Body), nil
+}
+
+func (s *Server) setDunningTemplateTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct{ Event, Subject, Body string }
+	if err := json.Unmarshal(args, &struct {
+		Event   *string `json:"event"`
+		Subject *string `json:"subject"`
+		Body    *string `json:"body"`
+	}{&a.Event, &a.Subject, &a.Body}); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if !validCommsEvent(a.Event) {
+		return "", fmt.Errorf("unknown event; one of payment_failed|requires_action|recovered|uncollectible")
+	}
+	if a.Subject == "" || a.Body == "" {
+		return "", fmt.Errorf("subject and body are required")
+	}
+	if _, err := comms.Render(comms.Template{Subject: a.Subject, Body: a.Body}, sampleCommsCtx()); err != nil {
+		return "", fmt.Errorf("template does not render: %w", err)
+	}
+	if err := s.store.PutMessageTemplate(domain.MessageTemplate{Event: a.Event, Subject: a.Subject, Body: a.Body, UpdatedAt: s.now()}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Updated the %q dunning message.", a.Event), nil
 }
 
 func (s *Server) getStartedTool(_ context.Context, _ json.RawMessage) (string, error) {

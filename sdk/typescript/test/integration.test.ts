@@ -82,6 +82,12 @@ test("full lifecycle: create → ingest → usage → finalize → reconcile →
   assert.ok(an.finalized_invoices >= 1, "analytics should count the finalized invoice");
   assert.ok(Number(an.finalized_revenue["USD"]) >= 64, "USD finalized revenue should include our $64 invoice");
 
+  // Dunning message templates: 4 defaults, and preview renders sample data.
+  const tmpls = await sb.dunning.templates();
+  assert.equal(tmpls.templates.length, 4);
+  const msg = await sb.dunning.preview("recovered");
+  assert.ok(msg.subject.length > 0 && msg.body.includes("64.00"));
+
   // Dunning methods are wired to the right routes. This e2e binary runs without a
   // payment processor, so collection declines (400) and no collection exists for
   // the invoice (404) — the happy path is covered by the Go API suite.

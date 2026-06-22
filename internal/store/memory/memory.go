@@ -33,6 +33,7 @@ type Store struct {
 	walletKeys   map[string]bool                       // wallet idempotency keys seen
 	webhooks     map[string]domain.Webhook             // keyed by id
 	collections  map[string]domain.Collection          // invoice_id -> dunning state
+	templates    map[string]domain.MessageTemplate     // dunning event -> template override
 }
 
 // New returns an empty store.
@@ -52,6 +53,7 @@ func New() *Store {
 		walletKeys:   map[string]bool{},
 		webhooks:     map[string]domain.Webhook{},
 		collections:  map[string]domain.Collection{},
+		templates:    map[string]domain.MessageTemplate{},
 	}
 }
 
@@ -309,6 +311,23 @@ func (s *Store) Collections() ([]domain.Collection, error) {
 	out := make([]domain.Collection, 0, len(s.collections))
 	for _, c := range s.collections {
 		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s *Store) PutMessageTemplate(t domain.MessageTemplate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.templates[t.Event] = t
+	return nil
+}
+
+func (s *Store) MessageTemplates() ([]domain.MessageTemplate, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.MessageTemplate, 0, len(s.templates))
+	for _, t := range s.templates {
+		out = append(out, t)
 	}
 	return out, nil
 }

@@ -80,6 +80,11 @@ type Store interface {
 	// Collections returns every collection (all statuses) — for analytics/reporting.
 	Collections() ([]domain.Collection, error)
 
+	// --- dunning message templates (Phase 10) ---
+
+	PutMessageTemplate(t domain.MessageTemplate) error
+	MessageTemplates() ([]domain.MessageTemplate, error)
+
 	// --- wallet (Phase 4) ---
 
 	// Wallet returns the customer's wallet, or ok=false if none exists yet.

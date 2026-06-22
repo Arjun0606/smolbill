@@ -201,6 +201,15 @@ export interface Analytics {
   dunning: DunningAnalytics;
 }
 
+export type DunningMessageEvent = "payment_failed" | "requires_action" | "recovered" | "uncollectible";
+
+export interface DunningTemplate {
+  event: DunningMessageEvent;
+  subject: string;
+  body: string;
+  customized: boolean;
+}
+
 export interface WebhookEvent {
   id: string;
   type: string;
@@ -363,6 +372,12 @@ export class Smolbill {
   dunning = {
     // Process every due collection — the endpoint a cron hits on a cadence.
     run: () => this.request<DunningRunResult>("POST", "/v1/dunning/run"),
+    // The customer-facing dunning copy is yours to read, edit, and preview.
+    templates: () => this.request<{ templates: DunningTemplate[] }>("GET", "/v1/dunning/templates"),
+    setTemplate: (event: DunningMessageEvent, req: { subject: string; body: string }) =>
+      this.request<{ event: string; customized: boolean }>("PUT", `/v1/dunning/templates/${encodeURIComponent(event)}`, req),
+    preview: (event: DunningMessageEvent, context?: Record<string, unknown>) =>
+      this.request<{ event: string; subject: string; body: string }>("POST", "/v1/dunning/preview", { event, context }),
   };
 
   analytics = {

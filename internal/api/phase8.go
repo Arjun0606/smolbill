@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Arjun0606/smolbill/internal/comms"
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
@@ -138,15 +139,19 @@ func (s *Server) emitCollectionEvent(prev dunning.Status, col domain.Collection)
 		// A success after any prior failure is a recovery; a clean first charge is
 		// just a payment.
 		if col.Attempts > 1 || prev == dunning.Retrying || prev == dunning.RequiresAction {
+			data["message"] = s.renderDunningMessage(comms.Recovered, col)
 			go s.emit("invoice.recovered", data)
 		} else {
 			go s.emit("invoice.paid", data)
 		}
 	case dunning.Retrying:
+		data["message"] = s.renderDunningMessage(comms.PaymentFailed, col)
 		go s.emit("invoice.payment_failed", data)
 	case dunning.RequiresAction:
+		data["message"] = s.renderDunningMessage(comms.RequiresAction, col)
 		go s.emit("invoice.action_required", data)
 	case dunning.Uncollectible:
+		data["message"] = s.renderDunningMessage(comms.Uncollectible, col)
 		go s.emit("invoice.uncollectible", data)
 	}
 }

@@ -79,6 +79,13 @@ class TestLifecycle(unittest.TestCase):
         self.assertGreaterEqual(an["finalized_invoices"], 1)
         self.assertGreaterEqual(float(an["finalized_revenue"]["USD"]), 64.0)
 
+        # Dunning message templates: 4 defaults, and preview renders sample data.
+        tmpls = sb.dunning.templates()
+        self.assertEqual(len(tmpls["templates"]), 4)
+        msg = sb.dunning.preview("recovered")
+        self.assertTrue(msg["subject"])
+        self.assertIn("64.00", msg["body"])
+
         # Dunning methods are wired to the right routes. This e2e binary runs
         # without a processor, so collection declines (400) and no collection
         # exists for the invoice (404) — happy path is covered by the Go suite.
