@@ -70,11 +70,11 @@ type Tier struct {
 
 // Price binds a meter to a pricing model within a plan.
 type Price struct {
-	ID        string
-	PlanID    string
-	MeterCode string          // empty for a pure flat subscription fee
-	Model     PriceModel
-	Currency  string
+	ID         string
+	PlanID     string
+	MeterCode  string // empty for a pure flat subscription fee
+	Model      PriceModel
+	Currency   string
 	UnitAmount decimal.Decimal // for per_unit
 	FlatAmount decimal.Decimal // for flat
 	Tiers      []Tier          // for tiered_graduated / tiered_volume, ascending by UpTo

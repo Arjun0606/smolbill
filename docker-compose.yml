@@ -1,0 +1,27 @@
+# smolbill: single binary + Postgres, nothing else (build plan §10).
+# `docker compose up` brings up Postgres and the engine on :8080.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smolbill
+      POSTGRES_PASSWORD: smolbill
+      POSTGRES_DB: smolbill
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smolbill"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  smolbill:
+    build: .
+    environment:
+      DATABASE_URL: postgres://smolbill:smolbill@db:5432/smolbill?sslmode=disable
+      ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy

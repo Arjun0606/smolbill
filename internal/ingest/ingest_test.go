@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
-	"github.com/Arjun0606/meterproof/internal/store/memory"
+	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/store/memory"
 )
 
 func goodEvent(key string, eventTime time.Time) domain.Event {
@@ -31,7 +31,8 @@ func TestAcceptStoresEvent(t *testing.T) {
 	if got.IngestedAt != now {
 		t.Fatalf("ingestedAt = %v, want %v", got.IngestedAt, now)
 	}
-	if n := len(st.EventsForCustomer("cus_1")); n != 1 {
+	evs, _ := st.EventsForCustomer("cus_1")
+	if n := len(evs); n != 1 {
 		t.Fatalf("stored events = %d, want 1", n)
 	}
 }
@@ -49,7 +50,8 @@ func TestDuplicateKeyRejected(t *testing.T) {
 		t.Fatalf("err = %v, want ErrDuplicate", err)
 	}
 	// The duplicate must not double-store.
-	if n := len(st.EventsForCustomer("cus_1")); n != 1 {
+	evs, _ := st.EventsForCustomer("cus_1")
+	if n := len(evs); n != 1 {
 		t.Fatalf("stored events = %d, want 1 (dup not stored)", n)
 	}
 }

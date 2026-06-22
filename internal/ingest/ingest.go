@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/domain"
 )
 
 // DefaultDedupWindow is the published idempotency window. An event whose

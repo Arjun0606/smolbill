@@ -14,8 +14,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
-	"github.com/Arjun0606/meterproof/internal/money"
+	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/money"
 )
 
 // Calculate returns the (full-precision) charge for a price given a metered

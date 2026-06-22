@@ -11,7 +11,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/domain"
 )
 
 // Aggregate computes the billable quantity for a meter over events that fall in

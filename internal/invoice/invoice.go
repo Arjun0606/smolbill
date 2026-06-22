@@ -17,10 +17,10 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
-	"github.com/Arjun0606/meterproof/internal/meter"
-	"github.com/Arjun0606/meterproof/internal/money"
-	"github.com/Arjun0606/meterproof/internal/pricing"
+	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/meter"
+	"github.com/Arjun0606/smolbill/internal/money"
+	"github.com/Arjun0606/smolbill/internal/pricing"
 )
 
 // Result is a computed invoice plus the per-line meter trace that the
@@ -35,12 +35,12 @@ type Result struct {
 // event count it saw, the aggregated quantity, and the resulting amount. This is
 // the raw-events -> meter -> invoice-line chain the ledger exposes.
 type LineTrace struct {
-	MeterCode      string
-	PriceModel     domain.PriceModel
-	RawEventCount  int
-	MeterValue     decimal.Decimal
+	MeterCode       string
+	PriceModel      domain.PriceModel
+	RawEventCount   int
+	MeterValue      decimal.Decimal
 	ProrationFactor decimal.Decimal
-	Amount         decimal.Decimal
+	Amount          decimal.Decimal
 }
 
 // Calculate computes the invoice for sub over [PeriodStart, PeriodEnd) using the

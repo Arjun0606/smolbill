@@ -1,38 +1,89 @@
-// Command meterproof is the Phase 1 CLI that exercises the deterministic core
-// end-to-end (build plan §11): create a meter and a plan, ingest usage events
-// idempotently, then compute an exact invoice preview with a full meter ->
-// invoice-line trace. No Postgres, no Stripe, no AI — just proof the math is
-// deterministic and the audit trail holds.
+// Command smolbill is the engine binary. Two subcommands:
 //
-// Run `meterproof demo` for a scripted walkthrough.
+//	smolbill serve   run the HTTP /v1 API (Postgres if DATABASE_URL is set, else in-memory)
+//	smolbill demo    run the end-to-end deterministic pipeline walkthrough (no DB)
+//
+// One static binary, Postgres-only, no Kafka/ClickHouse/Temporal (build plan §6 #6).
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"text/tabwriter"
 	"time"
 
 	"github.com/shopspring/decimal"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
-	"github.com/Arjun0606/meterproof/internal/ingest"
-	"github.com/Arjun0606/meterproof/internal/invoice"
-	"github.com/Arjun0606/meterproof/internal/store/memory"
+	"github.com/Arjun0606/smolbill/internal/api"
+	"github.com/Arjun0606/smolbill/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/ingest"
+	"github.com/Arjun0606/smolbill/internal/invoice"
+	"github.com/Arjun0606/smolbill/internal/store"
+	"github.com/Arjun0606/smolbill/internal/store/memory"
+	"github.com/Arjun0606/smolbill/internal/store/postgres"
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "demo" {
-		fmt.Println("meterproof — provably-correct usage billing (Phase 1 core)")
-		fmt.Println()
-		fmt.Println("usage:")
-		fmt.Println("  meterproof demo    run the end-to-end deterministic pipeline demo")
-		return
+	cmd := ""
+	if len(os.Args) >= 2 {
+		cmd = os.Args[1]
 	}
-	if err := runDemo(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	switch cmd {
+	case "serve":
+		if err := runServe(); err != nil {
+			log.Fatal(err)
+		}
+	case "demo":
+		if err := runDemo(); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+	default:
+		usage()
 	}
+}
+
+func usage() {
+	fmt.Println("smolbill — provably-correct usage billing")
+	fmt.Println()
+	fmt.Println("usage:")
+	fmt.Println("  smolbill serve   run the HTTP /v1 API")
+	fmt.Println("  smolbill demo    run the deterministic pipeline demo (no DB)")
+	fmt.Println()
+	fmt.Println("env:")
+	fmt.Println("  DATABASE_URL   postgres DSN; if unset, serve uses an in-memory store")
+	fmt.Println("  ADDR           listen address (default :8080)")
+}
+
+// runServe boots the HTTP API. With DATABASE_URL set it uses Postgres (and
+// applies the embedded schema); otherwise it falls back to in-memory so a fresh
+// clone can `serve` with zero setup.
+func runServe() error {
+	addr := os.Getenv("ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	var st store.Store
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		pg, err := postgres.New(context.Background(), dsn)
+		if err != nil {
+			return err
+		}
+		defer pg.Close()
+		st = pg
+		log.Printf("smolbill: using Postgres store")
+	} else {
+		st = memory.New()
+		log.Printf("smolbill: DATABASE_URL unset — using in-memory store (data is not persisted)")
+	}
+
+	srv := api.New(st, ingest.New(st, 0), nil)
+	log.Printf("smolbill: listening on %s (dedup window %s)", addr, ingest.DefaultDedupWindow)
+	return http.ListenAndServe(addr, srv.Handler())
 }
 
 func dec(s string) decimal.Decimal {
@@ -113,8 +164,15 @@ func runDemo() error {
 		accepted, dupes, ing.Window())
 
 	// 6. Deterministic invoice preview.
-	events := st.EventsForCustomer("cus_acme")
-	res, err := invoice.Calculate(sub, plan, st.Meters(), events)
+	events, err := st.EventsForCustomer("cus_acme")
+	if err != nil {
+		return err
+	}
+	meters, err := st.Meters()
+	if err != nil {
+		return err
+	}
+	res, err := invoice.Calculate(sub, plan, meters, events)
 	if err != nil {
 		return err
 	}
@@ -122,7 +180,7 @@ func runDemo() error {
 	printInvoice(res, started, periodStart, periodEnd)
 
 	// 7. Determinism proof: recompute, hash must match.
-	res2, _ := invoice.Calculate(sub, plan, st.Meters(), events)
+	res2, _ := invoice.Calculate(sub, plan, meters, events)
 	fmt.Printf("\nDeterminism check: recomputed hash %s\n", matchLabel(res.Hash, res2.Hash))
 	return nil
 }

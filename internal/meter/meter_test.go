@@ -6,7 +6,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/Arjun0606/meterproof/internal/domain"
+	"github.com/Arjun0606/smolbill/internal/domain"
 )
 
 func at(day int) time.Time {
@@ -22,8 +22,8 @@ func TestAggregateCount(t *testing.T) {
 	events := []domain.Event{
 		ev("1", "api_calls", at(2), nil),
 		ev("2", "api_calls", at(3), nil),
-		ev("3", "other", at(3), nil),       // wrong meter
-		ev("4", "api_calls", at(20), nil),  // out of window
+		ev("3", "other", at(3), nil),      // wrong meter
+		ev("4", "api_calls", at(20), nil), // out of window
 	}
 	got, err := Aggregate(m, events, at(1), at(10))
 	if err != nil {
