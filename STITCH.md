@@ -20,22 +20,35 @@ being **AI-native**: you set up and run your whole billing by talking to an AI a
 Audience: technical founders and indie devs. The polish of Linear, Vercel, Stripe,
 Supabase.
 
-## Visual identity
+## Visual identity (dark + warm amber — simple, bold, cool)
 
-- **Mood:** modern developer tool — calm, precise, trustworthy, a little "terminal."
-  Generous whitespace. Confidence through clarity, not decoration.
-- **Theme:** dark by default — near-black charcoal background (#0B0D0C), panels
-  #121514, hairline borders #1F2421. (Offer a light variant too: #FBFCFB bg, #FFFFFF
-  panels, #E6EAE7 borders, same green.)
-- **Accent:** one vivid green (#54D98C) for primary actions, positive states, active
-  nav, key numbers. Never more than one accent color.
-- **Text:** off-white #E9EFE9 primary, muted sage-gray #8A958C secondary.
-- **Status:** green=paid/recovered/healthy, amber=retrying/at-risk/pending,
-  red=drift/failed/uncollectible/over-limit, gray=draft/inactive.
-- **Type:** geometric sans (Inter/Geist) for UI; **monospace** (JetBrains Mono) for
-  all money, IDs (cus_…/inv_…), hashes, meter codes, code. Mono numbers are core.
-- **Components:** rounded-12px cards, hairline borders over shadows, small mono status
-  pills, data-dense but airy tables, copyable IDs, keyboard-first.
+Inspiration: a premium dark editorial/newsletter look — deep black, crisp white
+headlines, and a single warm honey-amber accent doing all the work.
+
+- **Mood:** dark, confident, editorial, effortless. Bold and minimal; one warm accent
+  against deep black. Cool and modern, never corporate or busy.
+- **Theme:** near-black background (#0A0A0A), cards a touch lighter (#161616), subtle
+  1px borders (#262626). Headlines crisp white (#FAFAFA), body muted gray (#8E8E8E).
+  Lots of black space.
+- **Accent — one warm amber / honey-gold (#F5A623):** the *only* accent. Use it for the
+  key word in a headline, primary buttons (amber fill + near-black text), active nav,
+  links and "→" CTAs, and key/positive numbers. Used sparingly = it pops.
+- **Status mapping (keep it simple):** amber = active / paid / healthy / consistent /
+  the highlight; a muted warm red (#E5544B) ONLY for the hard-negative (drift / failed /
+  uncollectible / over-limit); gray = draft / inactive. No other colors.
+- **Type:** a heavy, slightly tight **bold sans** for headlines (think Inter Display
+  Black) — big and confident, with the key word in amber; regular weight for body;
+  **monospace** (JetBrains Mono) for money, IDs (cus_…/inv_…), hashes, meter codes.
+- **Components:** dark **rounded-14px** cards with hairline borders (no heavy shadows on
+  black), small uppercase gray category/status pills, airy data-dense tables, amber
+  primary buttons, copyable mono IDs.
+- **The "pop":** amber on black is the whole identity — one warm color, lots of dark,
+  bold type. Simple and cool.
+
+> **Remap note for the screens below:** wherever a screen says "green," use the **amber**
+> accent. Positive / consistent / paid / recovered = **amber**; hard-negative drift /
+> failed / uncollectible / over-limit = **muted red**; at-risk / pending = amber (dim).
+> Everything else is black + white + gray.
 
 ## Shared patterns (apply to every app screen)
 
