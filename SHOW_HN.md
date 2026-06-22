@@ -10,10 +10,13 @@ morning (HN is busiest ~8-10am ET on Tue/Wed/Thu).
 
 Pick one (HN title max is 80 chars, so the long version gets trimmed; the short one is safer):
 
-- **Show HN: smolbill, open-source usage billing on Stripe (single binary, Postgres-only)**
+- **Show HN: smolbill, open-source usage billing for AI apps, not a % of your revenue**
+- Show HN: smolbill, open-source usage billing on Stripe (single binary, Postgres-only)
 - Show HN: Open-source usage billing where your meter and invoice can't disagree
 
-Keep "Show HN:" at the front. No emoji, no exclamation marks.
+Keep "Show HN:" at the front. No emoji, no exclamation marks. The first one leads with
+the positioning (AI/solo-dev, anti-%); the others lead with the build. Pick by gut on
+the day, but the first is the wedge.
 
 ## URL
 
@@ -24,10 +27,16 @@ HN trusts a repo more than a marketing site, and the README is the pitch.
 
 ## Post text (the box under the title)
 
-i've been building smolbill, an open-source usage-based billing engine. it sits on
-top of stripe (invoicing only, it never holds your money and never becomes a
-merchant of record), it's a single static binary with postgres and nothing else,
-and it's apache-2.0, not agpl.
+i built smolbill because every usage-billing tool i tried was either a cut of my
+revenue (stripe billing takes 0.7%) or felt built for a 50-person finance team
+(lago, orb, metronome, zuora). i'm a solo dev shipping an ai app. i just wanted to
+meter usage and send a correct invoice without a sales call or handing over a
+percent of my money.
+
+so: it's an open-source usage-based billing engine. it sits on top of stripe
+(invoicing only, it never holds your money and never becomes a merchant of record),
+it's a single static binary with postgres and nothing else, and it's apache-2.0,
+not agpl.
 
 the one thing i actually care about: your meter and your invoice can't silently
 disagree. every event you send is idempotent and the dedup window is documented.
@@ -81,6 +90,15 @@ a few implementation details for anyone curious:
 - the reconcile endpoint returns 200 when consistent and 409 with a diff when it
   drifted, so you can alert on it.
 - the customer wallet/portal is in the free core. one less thing behind a paywall.
+- decline-aware dunning is in the free core too. it retries failed payments on a
+  configurable schedule (default +2h/1d/3d/5d/7d, from recurly's public recovery
+  data), but it routes by decline reason: a dead card or an sca challenge stops
+  instead of getting hammered until the bank flags you for fraud. lago gates auto
+  dunning behind a premium license, chargebee behind a ~$250/mo add-on. this is free.
+- typescript and python sdks, both zero-dependency, both snake_case 1:1 with the
+  wire so they can't drift. a go test fails the build if a server route isn't in the
+  sdk manifest. webhooks are signed (hmac), and go/ts/python all assert the same
+  golden signature so a webhook verifies identically in every language.
 - it's deliberately not a merchant of record. a processor freeze can't take down
   your billing logic or feature gates, because they live in your postgres, not in
   stripe.

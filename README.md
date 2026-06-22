@@ -1,12 +1,12 @@
 # smolbill
 
-**The open-source usage-billing engine where your meter and your invoice provably never disagree.**
+**Open-source usage billing for AI apps and solo devs. Flat-priced, never a percent of your revenue.**
 
-Single binary, Postgres-only, flat-priced, on top of Stripe, never a Merchant of Record. Apache-2.0.
+A single Go binary + Postgres that meters usage, sends correct invoices, and can *prove* your meter and your invoice never silently disagree. Sits on top of Stripe (or any processor), never becomes a Merchant of Record. Apache-2.0.
 
-> **The loop:** AI sets the rule → deterministic code does the math → a reconciliation ledger proves it never drifted.
->
-> The AI passes *intent* (`attach_plan`), never money (`calculate_and_charge` is forbidden). A hallucinated decimal in billing ends a business relationship, so the AI never touches the math.
+> Stripe Billing takes 0.7% of your revenue. Lago, Orb, Metronome, and Zuora feel built for a 50-person finance team. **smolbill is for the rest of us** — meter usage, send a correct bill, no sales call, no cut of your money.
+
+> **The AI-native loop:** your agent sets the rule → deterministic code does the math → a reconciliation ledger proves it never drifted. The AI passes *intent* (`attach_plan`), never money (`calculate_and_charge` is forbidden) — a hallucinated decimal in billing ends a business relationship, so the AI never touches the math.
 
 ---
 
