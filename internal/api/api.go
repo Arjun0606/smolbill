@@ -293,7 +293,24 @@ func (s *Server) ingestEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 	customerID := r.PathValue("customer_id")
-	res, sub, err := s.computeForActiveSub(customerID)
+
+	// Time-travel: ?as_of=<RFC3339> replays the bill from only the events known at
+	// that moment — the audit/dispute view nothing snapshot-based can give.
+	compute := s.computeForActiveSub
+	var asOf time.Time
+	if v := r.URL.Query().Get("as_of"); v != "" {
+		t, perr := time.Parse(time.RFC3339, v)
+		if perr != nil {
+			writeErr(w, http.StatusBadRequest, "as_of must be RFC3339, e.g. 2026-06-15T00:00:00Z")
+			return
+		}
+		asOf = t
+		compute = func(cid string) (invoice.Result, domain.Subscription, error) {
+			return engine.ComputeAsOfForActiveSub(s.store, cid, t)
+		}
+	}
+
+	res, sub, err := compute(customerID)
 	if err != nil {
 		s.writeComputeErr(w, err)
 		return
@@ -311,7 +328,7 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 		}
 		usages = append(usages, meterUsage{code, tr.MeterValue.String(), tr.Amount.StringFixed(2)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"customer_id":     customerID,
 		"subscription_id": sub.ID,
 		"period_start":    sub.CurrentPeriodStart,
@@ -319,7 +336,11 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) {
 		"usage":           usages,
 		"projected_total": res.Invoice.Total.StringFixed(2),
 		"currency":        res.Invoice.Currency,
-	})
+	}
+	if !asOf.IsZero() {
+		resp["as_of"] = asOf
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- invoice preview (deterministic, exact) ---

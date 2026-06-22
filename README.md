@@ -46,11 +46,12 @@ docker compose up
 | `POST` | `/v1/plans` | versioned plan + prices |
 | `POST` | `/v1/subscriptions` | attach a plan to a customer |
 | `POST` | `/v1/events` | **idempotent** usage ingest (dedup on `idempotency_key`) |
-| `GET`  | `/v1/usage/{customer_id}` | real-time usage + projected bill |
+| `GET`  | `/v1/usage/{customer_id}` | real-time usage + projected bill — add `?as_of=<RFC3339>` to **time-travel** the bill to a past moment (before late events arrived) |
 | `POST` | `/v1/invoices/preview` | **deterministic** exact invoice + verification hash |
 | `POST` | `/v1/invoices/simulate` | **sandbox** — replay real usage against a *proposed* plan, diff vs the live bill, commit nothing |
 | `POST` | `/v1/invoices/finalize` | materialize invoice + persist the reconciliation ledger |
 | `GET`  | `/v1/reconcile/{invoice_id}` | **THE HEADLINE** — prove the invoice still agrees with the live event log |
+| `GET`  | `/v1/invoices/{invoice_id}/verify` | **cross-boundary** — prove the ledger equals what the payment processor actually billed (any processor) |
 | `POST` | `/v1/entitlements` | define a feature flag or metered allowance |
 | `GET`  | `/v1/entitlements/{customer_id}` | real-time limit check (live usage, not a trusted counter) |
 | `POST` | `/v1/alerts` | register a proactive spend alert (webhook at 50/80/100% of budget) |

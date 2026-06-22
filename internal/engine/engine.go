@@ -62,6 +62,53 @@ func Compute(st store.Store, sub domain.Subscription) (invoice.Result, error) {
 	return invoice.Calculate(sub, plan, meters, events)
 }
 
+// ComputeAsOf computes a subscription's invoice from only the events that had
+// been ingested at or before asOf — the billing state exactly as it was known at
+// a past moment. Because smolbill is event-sourced, this is a precise replay, not
+// a stored snapshot: it answers "what did this bill look like on date X, before
+// the late events arrived?" — the audit/dispute superpower no snapshot-based
+// billing system has.
+func ComputeAsOf(st store.Store, sub domain.Subscription, asOf time.Time) (invoice.Result, error) {
+	plan, ok, err := st.GetPlan(sub.PlanID)
+	if err != nil {
+		return invoice.Result{}, err
+	}
+	if !ok {
+		return invoice.Result{}, ErrPlanGone
+	}
+	meters, err := st.Meters()
+	if err != nil {
+		return invoice.Result{}, err
+	}
+	events, err := st.EventsForCustomer(sub.CustomerID)
+	if err != nil {
+		return invoice.Result{}, err
+	}
+	asOfEvents := make([]domain.Event, 0, len(events))
+	for _, e := range events {
+		if !e.IngestedAt.After(asOf) {
+			asOfEvents = append(asOfEvents, e)
+		}
+	}
+	return invoice.Calculate(sub, plan, meters, asOfEvents)
+}
+
+// ComputeAsOfForActiveSub time-travels the customer's active subscription's bill
+// to asOf.
+func ComputeAsOfForActiveSub(st store.Store, customerID string, asOf time.Time) (invoice.Result, domain.Subscription, error) {
+	subs, err := st.SubscriptionsForCustomer(customerID)
+	if err != nil {
+		return invoice.Result{}, domain.Subscription{}, err
+	}
+	for _, sub := range subs {
+		if sub.Status == domain.SubActive {
+			res, err := ComputeAsOf(st, sub, asOf)
+			return res, sub, err
+		}
+	}
+	return invoice.Result{}, domain.Subscription{}, ErrNoActiveSub
+}
+
 // --- plan building (shared by REST and MCP) ---
 
 // TierInput is one tier as supplied over the wire (decimal strings; nil UpTo for

@@ -144,3 +144,51 @@ func TestBuildPlanRejectsBadTier(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+// TestComputeAsOfExcludesLaterEvents proves time-travel: a late event ingested
+// after the as-of moment must NOT appear in the historical bill, but must appear
+// in the live one. This is the audit/dispute superpower the event log makes free.
+func TestComputeAsOfExcludesLaterEvents(t *testing.T) {
+	st := memory.New()
+	ps := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	pe := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutCustomer(domain.Customer{ID: "cus_1"}))
+	must(st.PutMeter(domain.Meter{Code: "tokens", Aggregation: domain.AggSum, PropertyKey: "n"}))
+	must(st.PutPlan(domain.Plan{ID: "plan_1", Name: "base", Version: 1, Prices: []domain.Price{
+		{ID: "p_tok", MeterCode: "tokens", Model: domain.ModelPerUnit, Currency: "USD", UnitAmount: dec("0.001")},
+	}}))
+	must(st.PutSubscription(domain.Subscription{
+		ID: "sub_1", CustomerID: "cus_1", PlanID: "plan_1", PlanVersion: 1,
+		Status: domain.SubActive, CurrentPeriodStart: ps, CurrentPeriodEnd: pe, StartedAt: ps,
+	}))
+	// e1 ingested June 5 (10000 tokens = $10). e2 is a LATE arrival: it belongs to
+	// June 4 but wasn't ingested until June 20 (5000 = $5).
+	must(st.AppendEvent(domain.Event{ID: "e1", IdempotencyKey: "e1", CustomerID: "cus_1", MeterCode: "tokens",
+		EventTime: ps.AddDate(0, 0, 4), IngestedAt: ps.AddDate(0, 0, 4), Properties: map[string]any{"n": float64(10000)}}))
+	must(st.AppendEvent(domain.Event{ID: "e2", IdempotencyKey: "e2", CustomerID: "cus_1", MeterCode: "tokens",
+		EventTime: ps.AddDate(0, 0, 3), IngestedAt: ps.AddDate(0, 0, 19), Properties: map[string]any{"n": float64(5000)}}))
+
+	// As of June 10, only e1 was known -> $10.00.
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	past, _, err := ComputeAsOfForActiveSub(st, "cus_1", asOf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !past.Invoice.Total.Equal(dec("10.00")) {
+		t.Fatalf("as-of June 10 = %s, want 10.00 (late event must be excluded)", past.Invoice.Total)
+	}
+	// Live, both events count -> $15.00.
+	now, _, err := ComputeForActiveSub(st, "cus_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !now.Invoice.Total.Equal(dec("15.00")) {
+		t.Fatalf("live total = %s, want 15.00", now.Invoice.Total)
+	}
+}
