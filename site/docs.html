@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>smolbill — docs</title>
+<meta name="description" content="Run smolbill, drive it from an AI agent over MCP, hit the /v1 REST API, integrate the TypeScript & Python SDKs, and deploy. Single Go binary + Postgres." />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a href="/" class="logo">smol<b>bill</b></a>
+    <div class="links">
+      <a href="/docs">Docs</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/compare">Compare</a>
+      <a href="https://github.com/Arjun0606/smolbill">GitHub</a>
+      <a href="https://github.com/Arjun0606/smolbill" class="btn primary sm">Start free</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <h1>Docs</h1>
+  <p class="lead">Everything is one Go binary + Postgres. No build step, no Kafka. Here's how to run it, drive it from an AI agent, and integrate the SDKs.</p>
+</header>
+
+<section id="quickstart">
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">quickstart</div>
+    <h2>See it prove itself in 60 seconds</h2>
+    <div class="code" style="margin-top:24px">go run ./cmd/smolbill <span class="a">quickstart</span></div>
+    <p class="lead" style="margin-top:18px">Seeds a real account — a Pro plan, usage events, and a finalized invoice — and serves it, printing clickable links to the dashboard, the <span class="amber">reconciliation ledger</span>, live usage with time-travel (<span class="mono">?as_of=</span>), and the AI sandbox (<span class="mono">/v1/invoices/simulate</span>). No account, no config.</p>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">install</div>
+    <h2>Three ways to get it</h2>
+    <div class="code" style="margin-top:24px">
+<span class="c"># 1. install the binary with Go</span>
+go install github.com/Arjun0606/smolbill/cmd/smolbill@latest
+
+<span class="c"># 2. the whole stack — Postgres + engine</span>
+docker compose up --build
+
+<span class="c"># 3. or grab a prebuilt release binary from GitHub</span>
+</div>
+    <p class="muted-note">The Postgres schema self-applies on first connect — no migrate step. Set <span class="mono">DATABASE_URL</span> to point at Postgres; leave it unset for an in-memory dev store (not persisted).</p>
+  </div>
+</section>
+
+<section id="api">
+  <div class="wrap">
+    <div class="eyebrow">rest api</div>
+    <h2>A small <span class="mono">/v1</span> surface</h2>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">POST</td><td class="mono">/v1/customers</td><td class="mut">create a customer</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/meters</td><td class="mut">define a meter (count · sum · max · unique)</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/plans</td><td class="mut">versioned plan + prices</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/subscriptions</td><td class="mut">attach a plan to a customer</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/events</td><td class="mut">idempotent usage ingest (dedup on idempotency_key)</td></tr>
+        <tr><td class="mono">GET</td><td class="mono">/v1/usage/{customer}</td><td class="mut">live usage + projected bill — add <span class="mono">?as_of=</span> to time-travel</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/invoices/simulate</td><td class="mut">sandbox — replay real usage against a proposed plan, persists nothing</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/invoices/finalize</td><td class="mut">materialize invoice + persist the reconciliation ledger</td></tr>
+        <tr><td class="mono">GET</td><td class="mono">/v1/reconcile/{invoice}</td><td class="mut"><span class="amber">the proof</span> — 200 consistent / 409 + diff if it drifted</td></tr>
+        <tr><td class="mono">GET</td><td class="mono">/v1/invoices/{invoice}/revenue</td><td class="mut">recognized-vs-deferred split (ASC 606)</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/gate</td><td class="mut">real-time allow/deny — block at the limit or at balance=0</td></tr>
+        <tr><td class="mono">GET</td><td class="mono">/v1/entitlements/{customer}</td><td class="mut">real-time limit check (live usage, not a counter)</td></tr>
+        <tr><td class="mono">POST</td><td class="mono">/v1/wallet/{customer}/topup</td><td class="mut">idempotent prepaid wallet credit</td></tr>
+      </tbody>
+    </table>
+    <p class="muted-note">Money math is integer-precise decimals (never floats) and rounds toward under-billing. The REST API and the MCP server compute through one shared engine, so a human and an agent can never get different numbers.</p>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">ai / mcp</div>
+    <h2>Drive your billing by talking to an agent</h2>
+    <p class="lead" style="margin-top:18px">smolbill speaks MCP. Over <strong>stdio</strong> for local editors — Claude Code, Cursor, Cline, Windsurf, Zed — and over <strong>Streamable HTTP</strong> for remote clients like ChatGPT and claude.ai connectors. The HTTP transport serves on <span class="mono">/mcp</span> and negotiates the protocol version by echoing the client's requested revision.</p>
+    <div class="code" style="margin-top:24px">
+<span class="c"># local editors — stdio transport</span>
+smolbill mcp
+</div>
+    <div class="code" style="margin-top:14px">
+<span class="c"># remote clients — Streamable HTTP on /mcp</span>
+smolbill mcp --http
+</div>
+    <p class="muted-note">Tools are intent-only — there is deliberately no <span class="mono">charge()</span> or <span class="mono">calculate_bill()</span>. The agent passes intent (<span class="mono">attach_plan</span>, <span class="mono">record_usage</span>); the deterministic engine does every cent. A test asserts no money-math tool can ever be exposed.</p>
+  </div>
+</section>
+
+<section id="sdks">
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">sdks</div>
+    <h2>TypeScript &amp; Python</h2>
+    <div class="code" style="margin-top:24px">
+<span class="c"># TypeScript</span>
+npm i smolbill
+
+const sb = new Smolbill({ baseUrl: <span class="a">"http://localhost:8080"</span> });
+const cus = await sb.customers.create({ name: <span class="a">"Acme AI"</span> });
+const proof = await sb.invoices.reconcile(invoiceId);
+</div>
+    <div class="code" style="margin-top:14px">
+<span class="c"># Python</span>
+pip install smolbill
+
+sb = Smolbill(base_url=<span class="a">"http://localhost:8080"</span>)
+cus = sb.customers.create(name=<span class="a">"Acme AI"</span>)
+proof = sb.invoices.reconcile(invoice_id)
+</div>
+    <p class="muted-note">Both SDKs are Apache-2.0, so your app can integrate the client freely — no copyleft obligation. They're snake_case 1:1 with the wire and ship typed, signature-verifying webhook handling.</p>
+  </div>
+</section>
+
+<section id="deploy">
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">deploy</div>
+    <h2>Ship it</h2>
+    <div class="grid" style="margin-top:28px">
+      <div class="cardx"><span class="ic">compose</span><h3>Docker Compose</h3><p><span class="mono">docker compose up --build</span> — engine on :8080 with Postgres alongside it.</p></div>
+      <div class="cardx"><span class="ic">fly.io</span><h3>Fly.io</h3><p><span class="mono">fly deploy</span> against the repo's <span class="mono">fly.toml</span> + Dockerfile; <span class="mono">fly postgres attach</span> wires <span class="mono">DATABASE_URL</span>.</p></div>
+      <div class="cardx"><span class="ic">render</span><h3>Render</h3><p>New → Blueprint, point at <span class="mono">render.yaml</span> — provisions the web service + managed Postgres.</p></div>
+    </div>
+    <p class="muted-note" style="margin-top:18px">Set <span class="mono">SMOLBILL_PROCESSOR</span> to select the payment rail (or set one provider's creds and it auto-detects); the Postgres schema self-applies on first connect. <a href="https://github.com/Arjun0606/smolbill/blob/main/DEPLOY.md">full deploy guide →</a></p>
+  </div>
+</section>
+
+<section class="center">
+  <div class="wrap" style="max-width:680px">
+    <div class="cardx">
+      <h3>Full reference lives in the repo.</h3>
+      <p style="margin:10px 0 20px">Every endpoint, every MCP tool, every payment rail — documented in the README and the source.</p>
+      <a href="https://github.com/Arjun0606/smolbill" class="btn primary">Browse the repo</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <div class="ft-h">Product</div>
+        <a href="/docs">Docs</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/compare">Compare</a>
+        <a href="https://github.com/Arjun0606/smolbill">GitHub</a>
+      </div>
+      <div>
+        <div class="ft-h">Open source</div>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/LICENSE">License (AGPLv3)</a>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/COMMERCIAL.md">Commercial license</a>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/CONTRIBUTING.md">Contributing</a>
+      </div>
+      <div>
+        <div class="ft-h">Engine</div>
+        <a href="/docs#quickstart">Quickstart</a>
+        <a href="/docs#mcp">MCP / AI</a>
+        <a href="/docs#sdks">SDKs</a>
+      </div>
+    </div>
+    <div class="base">
+      <span>smolbill · AGPLv3 + commercial · never a Merchant of Record for your customers</span>
+      <span class="mono">metered by smolbill</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

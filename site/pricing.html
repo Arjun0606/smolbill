@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>smolbill — pricing</title>
+<meta name="description" content="The smolbill engine is free, forever. Pay only when we run it for you, or for the closed Pro features. Never a percent of your revenue. AGPLv3 + commercial." />
+<meta property="og:title" content="smolbill — pricing" />
+<meta property="og:description" content="The engine is free, forever. Cloud is flat base + usage — never a percent of your revenue. AGPLv3 + commercial." />
+<meta property="og:type" content="website" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a href="/" class="logo">smol<b>bill</b></a>
+    <div class="links">
+      <a href="/docs">Docs</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/compare">Compare</a>
+      <a href="https://github.com/Arjun0606/smolbill">GitHub</a>
+      <a href="https://github.com/Arjun0606/smolbill" class="btn primary sm">Start free</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <h1>Pricing</h1>
+  <p class="lead">The engine is free, forever. You pay only when we run it for you, or when you need the closed Pro features. Never a percent of your revenue.</p>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="tiers">
+      <div class="tier">
+        <h3>Open core</h3>
+        <div class="price">$0</div>
+        <p class="muted-note">/ forever</p>
+        <p>Self-host the AGPLv3 engine. Single Go binary + Postgres.</p>
+        <ul>
+          <li>Provable reconciliation</li>
+          <li>Revenue recognition (ASC 606)</li>
+          <li>Real-time enforcement gate</li>
+          <li>6 pricing models (flat, per-unit, graduated, volume, package, percentage) + minimums</li>
+          <li>All 8 payment rails</li>
+          <li>Embeddable customer portal + wallet</li>
+          <li>Decline-aware dunning</li>
+          <li>MCP (stdio + HTTP) + REST + TS/Python SDKs</li>
+        </ul>
+        <a class="btn primary" href="https://github.com/Arjun0606/smolbill">Get started</a>
+      </div>
+
+      <div class="tier hot">
+        <h3>Cloud</h3>
+        <div class="price">flat + usage</div>
+        <p class="muted-note">· never a % of your revenue</p>
+        <p>We run it: managed Postgres, backups, the dunning cron, dashboards, the hosted MCP endpoint, and the Pro features.</p>
+        <ul>
+          <li>Everything in Open core</li>
+          <li>Managed hosting + backups</li>
+          <li>Hosted MCP endpoint at scale</li>
+          <li>Revenue analytics</li>
+          <li>SSO / RBAC</li>
+          <li>Priority support</li>
+        </ul>
+        <a class="btn primary" href="https://github.com/Arjun0606/smolbill">Join the Cloud waitlist</a>
+        <p class="muted-note">Cloud is in early access.</p>
+      </div>
+
+      <div class="tier">
+        <h3>Commercial license</h3>
+        <div class="price">Talk to us</div>
+        <p>Use the smolbill engine in a closed-source product or service without AGPL obligations — plus the closed Pro features.</p>
+        <ul>
+          <li>Non-AGPL grant to embed in closed-source</li>
+          <li>All Pro / Cloud features</li>
+          <li>Written license + support SLA</li>
+        </ul>
+        <a class="btn" href="https://github.com/Arjun0606/smolbill/blob/main/COMMERCIAL.md">Get a commercial license</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">what's open vs pro</div>
+    <h2>The whole engine is free. Pro is the ops + enterprise layer.</h2>
+    <table>
+      <thead><tr><th>Capability</th><th>Open core (AGPLv3)</th><th>Pro / Cloud</th></tr></thead>
+      <tbody>
+        <tr><td>Engine + deterministic invoicing + provable reconciliation</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>MCP (stdio+HTTP), REST, SDKs</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>All 8 payment-rail adapters</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Revenue recognition (ASC 606)</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Real-time enforcement gate</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Dashboard, customer portal, dunning</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Revenue analytics</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>SSO / RBAC, audit-log retention</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>Cross-merchant ML retry timing</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>Managed card-updater / network tokens</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>Managed hosting, hosted MCP at scale, SLA</td><td class="no">—</td><td class="yes">✓</td></tr>
+      </tbody>
+    </table>
+    <p class="muted-note">Pro features are genuinely closed (not a crippled community edition) — several can't be self-hosted.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">how cloud is priced</div>
+    <h2>Flat base + usage. Never a percent of your revenue.</h2>
+    <p class="lead">A small flat base, then usage-based pricing metered on the engine's own operational usage — events ingested, invoices finalized, active billed customers — metered by smolbill itself. A customer doing $1M in revenue pays for their billing <span class="amber">volume</span>, not a slice of their money: cheaper than a 0.7% cut, while still scaling with growth. The Supabase model.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <div class="ft-h">Product</div>
+        <a href="/docs">Docs</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/compare">Compare</a>
+        <a href="https://github.com/Arjun0606/smolbill">GitHub</a>
+      </div>
+      <div>
+        <div class="ft-h">Open source</div>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/LICENSE">License (AGPLv3)</a>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/COMMERCIAL.md">Commercial license</a>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/CONTRIBUTING.md">Contributing</a>
+      </div>
+      <div>
+        <div class="ft-h">Engine</div>
+        <a href="/docs#quickstart">Quickstart</a>
+        <a href="/docs#mcp">MCP / AI</a>
+        <a href="/docs#sdks">SDKs</a>
+      </div>
+    </div>
+    <div class="base">
+      <span>smolbill · AGPLv3 + commercial · never a Merchant of Record for your customers</span>
+      <span class="mono">metered by smolbill</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

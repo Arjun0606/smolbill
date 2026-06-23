@@ -3,221 +3,150 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>smolbill — open-source usage billing for AI apps and solo devs</title>
-<meta name="description" content="Meter usage, send a correct invoice, never give up a percent of your revenue. A single Go binary on top of Stripe. AGPLv3 + commercial. Provably correct billing for AI apps and solo devs." />
-<!-- Open Graph / social -->
-<meta property="og:title" content="smolbill — usage billing, not a % of your revenue" />
-<meta property="og:description" content="Open-source usage billing for AI apps and solo devs. Single binary, flat-priced, provably correct. AGPLv3 + commercial." />
+<title>smolbill — usage billing you can prove</title>
+<meta name="description" content="Open-source, provably-correct usage-based billing. A single Go binary that meters usage, sends a correct bill, and proves the meter and the invoice never silently disagree. Never a percent of your revenue. AGPLv3 + commercial." />
+<meta property="og:title" content="smolbill — usage billing you can prove" />
+<meta property="og:description" content="Open-source usage-based billing you can audit. Single binary, provably correct, AI/MCP-native, never a cut of your revenue." />
 <meta property="og:type" content="website" />
-<style>
-  :root {
-    --bg: #0b0d0c;
-    --panel: #121514;
-    --ink: #e9efe9;
-    --muted: #8a958c;
-    --line: #1f2421;
-    --green: #54d98c;
-    --green-dim: #2e7d53;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font-family: var(--sans); line-height: 1.55; -webkit-font-smoothing: antialiased;
-  }
-  a { color: var(--green); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
-  .mono { font-family: var(--mono); }
-
-  /* nav */
-  nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
-  .brand { font-family: var(--mono); font-weight: 600; font-size: 18px; letter-spacing: -0.5px; }
-  .brand b { color: var(--green); }
-  .nav-links a { color: var(--muted); margin-left: 22px; font-size: 14px; }
-  .nav-links a:hover { color: var(--ink); text-decoration: none; }
-
-  /* hero */
-  .hero { padding: 64px 0 40px; }
-  .tag { display: inline-block; font-family: var(--mono); font-size: 12px; color: var(--green);
-         border: 1px solid var(--green-dim); border-radius: 999px; padding: 4px 12px; margin-bottom: 22px; }
-  h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.05; letter-spacing: -1.5px; margin: 0 0 18px; }
-  h1 .hl { color: var(--green); }
-  .sub { font-size: 19px; color: var(--muted); max-width: 660px; margin: 0 0 30px; }
-  .sub b { color: var(--ink); font-weight: 600; }
-  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  .btn { display: inline-block; font-weight: 600; font-size: 15px; padding: 12px 20px; border-radius: 10px;
-         border: 1px solid var(--line); }
-  .btn-primary { background: var(--green); color: #07120c; border-color: var(--green); }
-  .btn-primary:hover { text-decoration: none; filter: brightness(1.08); }
-  .btn-ghost { color: var(--ink); }
-  .btn-ghost:hover { border-color: var(--green-dim); text-decoration: none; }
-
-  /* code */
-  .code { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-          font-family: var(--mono); font-size: 14px; padding: 18px 20px; margin: 28px 0; overflow-x: auto; }
-  .code .c { color: var(--muted); }
-  .code .g { color: var(--green); }
-
-  /* compare strip */
-  .strip { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
-           padding: 22px 0; margin: 16px 0 8px; color: var(--muted); font-size: 15px; }
-  .strip b { color: var(--ink); }
-
-  /* features */
-  section { padding: 48px 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted);
-       font-family: var(--mono); margin: 0 0 24px; }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
-  .card h3 { margin: 0 0 8px; font-size: 17px; }
-  .card p { margin: 0; color: var(--muted); font-size: 15px; }
-  .card .k { font-family: var(--mono); font-size: 12px; color: var(--green); }
-
-  /* pricing */
-  .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .price { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
-  .price.feature { border-color: var(--green-dim); }
-  .price .name { font-family: var(--mono); font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
-  .price .amt { font-size: 30px; font-weight: 700; margin: 10px 0 4px; }
-  .price .amt small { font-size: 14px; color: var(--muted); font-weight: 400; }
-  .price ul { list-style: none; padding: 0; margin: 16px 0 0; }
-  .price li { color: var(--muted); font-size: 14px; padding: 5px 0; border-top: 1px solid var(--line); }
-  .price li:first-child { border-top: none; }
-  .note { color: var(--muted); font-size: 13px; margin-top: 18px; text-align: center; }
-
-  footer { border-top: 1px solid var(--line); padding: 32px 0 56px; color: var(--muted); font-size: 14px;
-           display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-  footer a { color: var(--muted); margin-right: 18px; }
-  footer a:hover { color: var(--ink); }
-
-  @media (max-width: 720px) {
-    .grid, .price-grid { grid-template-columns: 1fr; }
-    .nav-links { display: none; }
-  }
-</style>
+<link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div class="wrap">
 
-  <nav>
-    <div class="brand">smol<b>bill</b></div>
-    <div class="nav-links">
-      <a href="#how">how</a>
-      <a href="#why">why</a>
-      <a href="#pricing">pricing</a>
-      <!-- TODO: real repo URL -->
-      <a href="https://github.com/Arjun0606/smolbill">github</a>
-    </div>
-  </nav>
-
-  <header class="hero">
-    <span class="tag">open source · agpl-3.0 · single binary</span>
-    <h1>Usage billing for AI apps and solo devs.<br><span class="hl">Never a percent of your revenue.</span></h1>
-    <p class="sub">
-      Every billing tool is either a cut of your revenue or built for a 50-person finance team.
-      smolbill is for the rest of us: <b>meter usage, send a correct invoice, no sales call, no cut of your money.</b>
-      A single Go binary on top of Stripe that can <b>prove</b> your meter and your invoice never silently disagree.
-    </p>
-    <div class="cta-row">
-      <!-- TODO: real repo URL -->
-      <a class="btn btn-primary" href="https://github.com/Arjun0606/smolbill">Star on GitHub</a>
-      <!-- TODO: Stripe Payment Link / waitlist for the managed cloud -->
-      <a class="btn btn-ghost" href="#pricing">Get the hosted beta →</a>
-    </div>
-  </header>
-
-  <div class="code" id="how">
-<span class="c"># see the whole thing run in 60 seconds — no setup, no account</span>
-<span class="g">go run ./cmd/smolbill quickstart</span>
-
-<span class="c"># or from your app, 5 lines:</span>
-<span class="c">npm i smolbill</span>
-  <span class="g">const</span> sb = <span class="g">new</span> Smolbill({ baseUrl })
-  <span class="g">await</span> sb.events.ingest({ idempotency_key: <span class="g">"req-1"</span>, customer_id, meter_code: <span class="g">"tokens"</span>, properties: { n: <span class="g">1000</span> } })
-  </div>
-
-  <div class="strip">
-    <b>Stripe Billing</b> takes 0.7% of your revenue. &nbsp;<b>Lago · Orb · Metronome · Zuora</b> need a finance team.
-    &nbsp;<b>smolbill</b> is flat-priced, open source, and self-host is free forever.
-  </div>
-
-  <section id="why">
-    <h2>Why smolbill</h2>
-    <div class="grid">
-      <div class="card">
-        <div class="k">never a %</div>
-        <h3>Flat-priced, not a cut of your money</h3>
-        <p>Priced on events metered, never a percent of your billing volume. The thing Stripe Billing structurally can't drop, because it's their own revenue line.</p>
-      </div>
-      <div class="card">
-        <div class="k">provably correct</div>
-        <h3>Your meter and invoice can't silently disagree</h3>
-        <p>A reconciliation ledger recomputes the bill from your raw events on demand and shows you, line by line, exactly where anything drifted. Billing bugs that quietly overcharge people are the nightmare. This is the fix.</p>
-      </div>
-      <div class="card">
-        <div class="k">ai-native</div>
-        <h3>Your agent sets the rules, never does the math</h3>
-        <p>An MCP server lets Claude or Cursor configure billing by passing intent. There is no <span class="mono">charge()</span> tool. The deterministic engine does every cent, so a hallucinated decimal never touches money.</p>
-      </div>
-      <div class="card">
-        <div class="k">free dunning</div>
-        <h3>Decline-aware failed-payment recovery</h3>
-        <p>Retries failed payments on a configurable schedule, but stops hammering a dead card instead of tripping the bank's fraud limits. Lago and Chargebee paywall this. Here it's in the core.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="pricing">
-    <h2>Pricing</h2>
-    <div class="price-grid">
-      <div class="price">
-        <div class="name">Self-host</div>
-        <div class="amt">$0<small> / forever</small></div>
-        <ul>
-          <li>The entire engine, AGPLv3 (commercial license available)</li>
-          <li>Metering, invoicing, reconciliation</li>
-          <li>Dunning, webhooks, SDKs, portal</li>
-          <li>Runs on your box, your Postgres</li>
-        </ul>
-      </div>
-      <div class="price feature">
-        <div class="name">Cloud — Pro</div>
-        <div class="amt">flat<small> + usage</small></div>
-        <ul>
-          <li>We run it: managed Postgres, backups</li>
-          <li>The dunning cron + dashboards</li>
-          <li>Priced on events, never % of revenue</li>
-          <li>Email support</li>
-        </ul>
-      </div>
-      <div class="price">
-        <div class="name">Cloud — Scale</div>
-        <div class="amt">talk to us</div>
-        <ul>
-          <li>ML retry timing + card-updater</li>
-          <li>SSO, RBAC, audit log</li>
-          <li>Revenue analytics</li>
-          <li>SLA</li>
-        </ul>
-      </div>
-    </div>
-    <p class="note">Self-host is free forever and costs us nothing — so it always will be.
-    The cloud is just us running it for you, priced above cost from day one. Never a percent of what you make.</p>
-  </section>
-
-  <footer>
-    <div>smolbill · AGPLv3 + commercial · not a Merchant of Record</div>
-    <div>
-      <!-- TODO: real links -->
+<nav>
+  <div class="wrap">
+    <a href="/" class="logo">smol<b>bill</b></a>
+    <div class="links">
+      <a href="/docs">Docs</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/compare">Compare</a>
       <a href="https://github.com/Arjun0606/smolbill">GitHub</a>
-      <a href="#">Discord</a>
-      <a href="#">X</a>
-      <a href="https://github.com/Arjun0606/smolbill#readme">Docs</a>
+      <a href="https://github.com/Arjun0606/smolbill" class="btn primary sm">Start free</a>
     </div>
-  </footer>
+  </div>
+</nav>
 
+<header class="hero wrap">
+  <div class="tag">open source · agpl-3.0 · single binary</div>
+  <h1>Usage billing you can <span class="amber">prove</span>.</h1>
+  <p class="lead">A single Go binary that meters usage, sends a correct invoice, and proves the meter and the invoice never silently disagree. Routes collection to any processor. Never takes a percent of your revenue.</p>
+  <div class="cta">
+    <a href="https://github.com/Arjun0606/smolbill" class="btn primary">Get started</a>
+    <a href="/docs" class="btn">Read the docs</a>
+  </div>
+  <img src="demo.gif" alt="smolbill computes a real invoice, then proves the meter and the invoice agree with a hash" class="demo-img" />
+  <p class="muted-note">One command. It computes a real invoice, then <span class="amber">proves</span> it’s correct — with a hash.</p>
+  <div class="rail">
+    <span class="chip">Stripe</span><span class="chip">Dodo</span><span class="chip">Paddle</span>
+    <span class="chip">Lemon Squeezy</span><span class="chip">Polar</span><span class="chip">Creem</span>
+    <span class="chip">Razorpay</span><span class="chip">Crypto</span>
+  </div>
+</header>
+
+<section>
+  <div class="wrap" style="max-width:760px">
+    <div class="eyebrow">the problem</div>
+    <h2>Your usage bill is probably a little bit wrong, and you can’t prove otherwise.</h2>
+    <p class="lead">Every usage-based product counts events, runs some pricing logic, and produces a number. Then everyone just trusts the number. But between a raw event and an invoice line sits a meter, a price tier, proration, rounding, maybe a manual edit. Any of them can make the bill drift from the truth — and you find out from an angry customer, not your own system.</p>
+    <p class="lead" style="margin-top:18px">smolbill adds the missing step: a <span class="amber">reconciliation ledger</span> that replays every invoice from the raw events and proves they still agree, with a hash. If they ever drift, it shows you the exact line and why.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">what you get</div>
+    <h2>Everything billing needs — and the things nobody else has.</h2>
+    <div class="grid">
+      <div class="cardx"><span class="ic">proof</span><h3>Provable reconciliation</h3><p>Replay any finalized invoice from the live event log and prove, with a hash, that the meter and the invoice agree. No competitor has this.</p></div>
+      <div class="cardx"><span class="ic">asc 606</span><h3>Revenue recognition</h3><p>Recognized-vs-deferred, straight-line over the service period, computed fresh from the invoice. The thing teams leave other OSS billing tools for.</p></div>
+      <div class="cardx"><span class="ic">gate</span><h3>Real-time enforcement</h3><p>A synchronous “can this customer do this right now?” gate that hard-blocks at the limit or at balance=0. Spend caps only warn; the gate denies.</p></div>
+      <div class="cardx"><span class="ic">pricing</span><h3>Six pricing models</h3><p>flat · per-unit · graduated · volume · package · percentage — each with optional minimum spend and cap. Express pricing Stripe and Chargebee can’t.</p></div>
+      <div class="cardx"><span class="ic">mcp</span><h3>AI / MCP-native</h3><p>Built ground-up for agents: configure billing by passing intent over MCP. The agent never touches the money math — the deterministic engine does every cent.</p></div>
+      <div class="cardx"><span class="ic">rails</span><h3>Bring any processor</h3><p>Eight payment rails behind one interface. smolbill computes what’s owed and routes collection to whatever you already use. Never locked in.</p></div>
+      <div class="cardx"><span class="ic">$0</span><h3>Never a % of revenue</h3><p>Stripe Billing taxes 0.7% of your billing volume. smolbill takes 0%. Self-host the engine free, forever.</p></div>
+      <div class="cardx"><span class="ic">1 binary</span><h3>Single binary + Postgres</h3><p>No Kafka, no ClickHouse, no data-engineering team. One static Go binary. Run the whole thing in 60 seconds.</p></div>
+      <div class="cardx"><span class="ic">portal</span><h3>Free portal &amp; dunning</h3><p>Embeddable customer portal, prepaid wallet, and decline-aware dunning — the features others gate behind a premium license — in the open core.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap" style="max-width:820px">
+    <div class="eyebrow">how it works</div>
+    <h2>The AI sets the rule. The engine does the math. The ledger proves it.</h2>
+    <div class="code" style="margin-top:28px">
+<span class="c"># your agent passes intent over MCP — never money</span>
+attach_plan(customer, plan)        <span class="c">→ ok</span>
+record_usage(customer, "tokens", 15000)
+<span class="c"># the deterministic engine computes every cent</span>
+finalize_invoice(subscription)     <span class="c">→ $64.00, hash 64edfeb7…</span>
+<span class="c"># and it proves itself, any time</span>
+reconcile_invoice(invoice)         <span class="a">→ consistent ✓ (meter and invoice provably agree)</span>
 </div>
+    <p class="muted-note">A hallucinated decimal in a bill ends a business relationship — so the model is structurally kept away from the arithmetic.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">why we exist</div>
+    <h2>Stripe and Dodo have billing. So why us?</h2>
+    <p class="lead" style="max-width:780px">Because for a payment processor, billing is a feature that taxes payment volume — not a product. It’s built just deep enough to keep your money on their rails. The proof: Stripe, with the most mature billing of all of them, paid ~$1B to <em>buy</em> Metronome rather than fix its own billing for usage-based pricing. The dedicated billing layer exists because billing is a separate, hard problem that conflicts with a processor’s incentives.</p>
+    <table>
+      <thead><tr><th>Capability</th><th>Payment processors</th><th>Billing platforms</th><th>smolbill</th></tr></thead>
+      <tbody>
+        <tr><td>Provable reconciliation</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>Revenue recognition</td><td class="mut">Stripe only</td><td class="mut">partial</td><td class="yes">✓ free</td></tr>
+        <tr><td>Real-time gate (block at $0)</td><td class="no">—</td><td class="no">alerts only</td><td class="yes">✓</td></tr>
+        <tr><td>AI / MCP-native</td><td class="no">dashboard ops</td><td class="no">—</td><td class="yes">✓</td></tr>
+        <tr><td>Processor-neutral</td><td class="no">locked in</td><td class="mut">—</td><td class="yes">✓ 8 rails</td></tr>
+        <tr><td>Self-host · 0% of revenue</td><td class="bad">takes a cut</td><td class="bad">takes a cut</td><td class="yes">✓</td></tr>
+      </tbody>
+    </table>
+    <p class="muted-note"><a href="/compare">See the full comparison →</a></p>
+  </div>
+</section>
+
+<section class="center">
+  <div class="wrap" style="max-width:680px">
+    <h2>See it prove itself in 60 seconds.</h2>
+    <p class="lead">No account, no setup. One command seeds a real billing account and serves it, with the reconciliation ledger live.</p>
+    <div class="code center" style="margin-top:24px; display:inline-block; text-align:left">go run ./cmd/smolbill <span class="a">quickstart</span></div>
+    <div class="cta">
+      <a href="https://github.com/Arjun0606/smolbill" class="btn primary">Star on GitHub</a>
+      <a href="/pricing" class="btn">See pricing</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <div class="ft-h">Product</div>
+        <a href="/docs">Docs</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/compare">Compare</a>
+        <a href="https://github.com/Arjun0606/smolbill">GitHub</a>
+      </div>
+      <div>
+        <div class="ft-h">Open source</div>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/LICENSE">License (AGPLv3)</a>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/COMMERCIAL.md">Commercial license</a>
+        <a href="https://github.com/Arjun0606/smolbill/blob/main/CONTRIBUTING.md">Contributing</a>
+      </div>
+      <div>
+        <div class="ft-h">Engine</div>
+        <a href="/docs#quickstart">Quickstart</a>
+        <a href="/docs#mcp">MCP / AI</a>
+        <a href="/docs#sdks">SDKs</a>
+      </div>
+    </div>
+    <div class="base">
+      <span>smolbill · AGPLv3 + commercial · never a Merchant of Record for your customers</span>
+      <span class="mono">metered by smolbill</span>
+    </div>
+  </div>
+</footer>
+
 </body>
 </html>
