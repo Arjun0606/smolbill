@@ -82,6 +82,17 @@ func TestInitialize(t *testing.T) {
 	if result["serverInfo"].(map[string]any)["name"] != "smolbill" {
 		t.Fatal("serverInfo.name should be smolbill")
 	}
+	// The instructions are how the agent learns to operate billing in plain
+	// English (the "no learning curve" thesis) — they must ship in initialize.
+	instr, ok := result["instructions"].(string)
+	if !ok || len(instr) < 200 {
+		t.Fatalf("initialize must return substantive instructions, got %d chars", len(instr))
+	}
+	for _, must := range []string{"get_started", "simulate_plan_change", "reconcile_invoice", "never"} {
+		if !strings.Contains(strings.ToLower(instr), strings.ToLower(must)) {
+			t.Errorf("instructions should mention %q", must)
+		}
+	}
 }
 
 // A client requesting a known protocol version must get that SAME version echoed

@@ -37,6 +37,34 @@ import (
 // revision. Unknown/absent versions fall back to this default.
 const defaultProtocolVersion = "2025-06-18"
 
+// serverInstructions is returned in the initialize result. MCP clients surface it
+// to the model as top-level guidance for the whole tool surface — so the agent can
+// run billing entirely from plain English, safely, without the user learning any
+// API. This is the "AI at the core, no learning curve" thesis, written down.
+const serverInstructions = `smolbill is a usage-based billing engine you operate entirely in plain English. The user describes what they want ("bill $0.002 per API call with a $20 base", "is invoice X correct?", "what would happen if I switched Acme to the new plan?") and you carry it out with these tools. The user never needs to know the API.
+
+FIRST MOVE
+- On a new connection, call get_started to see the account state and the recommended next step.
+- When the user says something like "set up billing" / "start charging for usage", prefer quickstart_billing — it goes from a plain description to a working meter + plan + previewable bill in one step. Only wire create_meter / create_plan / attach_plan by hand when they need something quickstart can't express.
+
+THE ENGINE OWNS THE MATH — YOU NEVER DO
+- Never invent, estimate, or round a money amount, a usage quantity, or a verdict on whether a bill is correct. Always read it from a tool: get_usage, preview_invoice, get_analytics, get_wallet, check_entitlement, reconcile_invoice. A hallucinated number ends a business relationship; the deterministic engine computes every cent, so defer to it and quote it verbatim (it already formats to the currency's minor unit).
+- There is deliberately no "charge this card" tool. You pass intent; the engine and the payment rail move money.
+
+SHOW CONSEQUENCES BEFORE COMMITTING
+- preview_invoice and simulate_plan_change move nothing and persist nothing. Use them to show the user the exact outcome first — especially simulate_plan_change before any pricing change (it replays the customer's REAL usage against the proposed plan and diffs it against their live bill).
+- finalize_invoice, collect_invoice, topup_wallet, set_dunning_template and the create_* tools change real state. Confirm the specifics (amount, customer, plan) with the user before calling them. State plainly what each call did afterward.
+
+CORRECTNESS IS THE PRODUCT — LEAD WITH IT
+- To answer "is this bill right?", call reconcile_invoice (matches the stored invoice against a fresh recompute from the raw events; returns "consistent" or the exact line-level drift) or verify_invoice (checks it against what the payment processor actually billed). Surface the verdict and the verification hash; that proof is the whole point.
+- For real-time enforcement ("can this customer do this right now?"), use gate_check — it's a hard allow/deny. set_spend_cap only warns; it does not block.
+
+ACT ON REAL IDS, NEVER GUESSED ONES
+- Before acting, discover what exists: list_customers, list_plans, list_subscriptions, list_invoices, list_meters, list_webhooks. Never fabricate a customer_id, plan_id, or invoice_id — if you're unsure which one the user means, list and ask.
+
+STYLE
+- Be concise and lead with the numbers the engine returns. Don't add caveats or "what you should do" unless asked. When a result carries a hash or a reconciliation verdict, show it — it's the credibility.`
+
 // supportedProtocolVersions are the MCP revisions we will echo back to a client.
 // All are wire-compatible with our handlers; the set just bounds what we'll claim.
 var supportedProtocolVersions = map[string]bool{
@@ -207,6 +235,7 @@ func (s *Server) handle(ctx context.Context, line []byte) (rpcResponse, bool) {
 			"protocolVersion": negotiateVersion(ip.ProtocolVersion),
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "smolbill", "version": "0.1.0"},
+			"instructions":    serverInstructions,
 		}), true
 	case "notifications/initialized", "notifications/cancelled":
 		return rpcResponse{}, false

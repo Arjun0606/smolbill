@@ -231,6 +231,24 @@ func (s *Server) buildTools() []tool {
 			handler:     s.listMetersTool,
 		},
 		{
+			name:        "list_plans",
+			description: "List every plan (id, name, version, and a one-line pricing summary of each component), so you can see what pricing exists before attaching a customer or proposing a change.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.listPlansTool,
+		},
+		{
+			name:        "list_subscriptions",
+			description: "List every subscription (id, customer, plan, status, current period), so you know who is on what before finalizing invoices or changing plans.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.listSubscriptionsTool,
+		},
+		{
+			name:        "list_invoices",
+			description: "List every invoice (id, customer, period, total, status) across the account — the global ledger view, so you can find an invoice to reconcile, verify, or recognize revenue on.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.listInvoicesTool,
+		},
+		{
 			name:        "list_webhooks",
 			description: "List registered webhook endpoints (secrets are never shown).",
 			inputSchema: obj(map[string]any{}),
@@ -654,6 +672,67 @@ func (s *Server) listMetersTool(_ context.Context, _ json.RawMessage) (string, e
 	fmt.Fprintf(&b, "%d meter(s):\n", len(ms))
 	for _, m := range ms {
 		fmt.Fprintf(&b, "  • %s (%s)\n", m.Code, m.Aggregation)
+	}
+	return b.String(), nil
+}
+
+func (s *Server) listPlansTool(_ context.Context, _ json.RawMessage) (string, error) {
+	ps, err := s.store.ListPlans()
+	if err != nil {
+		return "", err
+	}
+	if len(ps) == 0 {
+		return "No plans yet. Create one with create_plan.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d plan(s):\n", len(ps))
+	for _, p := range ps {
+		parts := make([]string, 0, len(p.Prices))
+		for _, pr := range p.Prices {
+			code := pr.MeterCode
+			if code == "" {
+				code = "base"
+			}
+			parts = append(parts, fmt.Sprintf("%s:%s", code, pr.Model))
+		}
+		fmt.Fprintf(&b, "  • %s — %s v%d [%s]\n", p.ID, p.Name, p.Version, strings.Join(parts, ", "))
+	}
+	return b.String(), nil
+}
+
+func (s *Server) listSubscriptionsTool(_ context.Context, _ json.RawMessage) (string, error) {
+	subs, err := s.store.ListSubscriptions()
+	if err != nil {
+		return "", err
+	}
+	if len(subs) == 0 {
+		return "No subscriptions yet. Attach a plan to a customer with attach_plan.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d subscription(s):\n", len(subs))
+	for _, sub := range subs {
+		fmt.Fprintf(&b, "  • %s — customer %s on plan %s (%s), period %s → %s\n",
+			sub.ID, sub.CustomerID, sub.PlanID, sub.Status,
+			sub.CurrentPeriodStart.Format("2006-01-02"), sub.CurrentPeriodEnd.Format("2006-01-02"))
+	}
+	return b.String(), nil
+}
+
+func (s *Server) listInvoicesTool(_ context.Context, _ json.RawMessage) (string, error) {
+	invs, err := s.store.ListInvoices()
+	if err != nil {
+		return "", err
+	}
+	if len(invs) == 0 {
+		return "No invoices yet. Finalize a subscription's period with finalize_invoice.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d invoice(s):\n", len(invs))
+	for _, inv := range invs {
+		fmt.Fprintf(&b, "  • %s — customer %s, %s → %s, %s %s [%s]\n",
+			inv.ID, inv.CustomerID,
+			inv.PeriodStart.Format("2006-01-02"), inv.PeriodEnd.Format("2006-01-02"),
+			money.Format(inv.Total, inv.Currency), inv.Currency, inv.Status)
 	}
 	return b.String(), nil
 }
