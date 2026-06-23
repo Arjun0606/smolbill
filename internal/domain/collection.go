@@ -8,7 +8,7 @@ import "time"
 //
 // This is the thing Lago gates behind a premium license (and you must email
 // sales to get) and Chargebee behind a $250/mo add-on — given away here in the
-// Apache-2.0 core, fully inspectable: the cadence is data, not a black box.
+// open core, fully inspectable: the cadence is data, not a black box.
 type Collection struct {
 	InvoiceID     string     `json:"invoice_id"`
 	ExternalID    string     `json:"external_invoice_id"` // processor invoice the charge is attempted against

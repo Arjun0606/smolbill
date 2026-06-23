@@ -45,7 +45,7 @@ So before launch day, two things must exist for the spike to stick:
 
 **Description (≤260 chars):**
 > Meter usage, send a correct invoice, never give up a % of your revenue. A single
-> Go binary on top of Stripe, Apache-2.0. Reconciliation ledger proves your meter
+> Go binary on top of Stripe; AGPLv3 engine + Apache SDKs. Reconciliation ledger proves your meter
 > and invoice never silently disagree. Decline-aware dunning + TS/Python SDKs free.
 
 **Topics:** Developer Tools, SaaS, Artificial Intelligence, Open Source, Payments
@@ -106,7 +106,7 @@ few hours (no fake upvotes — PH detects rings and it's not worth it).
 > decimal in billing ends a business relationship so the model never touches the math.
 
 5/
-> apache-2.0, single go binary + postgres, ts + python sdks. self host free forever.
+> agpl-3.0 engine + apache sdks, single go binary + postgres. self host free forever.
 > see the whole thing run in 60 seconds: `go run ./cmd/smolbill quickstart`
 > repo + discord in the replies. tear it apart, i want to know where the billing
 > logic is wrong.
@@ -136,8 +136,9 @@ It will be the top comment. Answer calmly, it's already true:
 - **Stripe Billing** takes 0.7% of your revenue even off-Stripe, caps line items, and
   makes you reintegrate to change a metric. smolbill is flat-priced and runs on any
   processor.
-- **Lago** is AGPL (scares legal teams), heavier to self-host, and gates auto-dunning
-  + the portal behind premium. smolbill is Apache-2.0, one binary, those are free.
+- **Lago** is heavier to self-host and gates auto-dunning + the portal behind premium.
+  smolbill is one binary with those free in the core — AGPL engine, permissive SDKs,
+  and a clean commercial license if AGPL doesn't fit.
 - **Orb/Metronome/Zuora** are excellent and built for companies with a billing team.
   smolbill is for the solo dev and the two-person AI startup who just want it to work.
 - **The honest line:** config is no-code, but ingestion is ~10 lines of SDK. it's

@@ -35,8 +35,9 @@ percent of my money.
 
 so: it's an open-source usage-based billing engine. it sits on top of stripe
 (invoicing only, it never holds your money and never becomes a merchant of record),
-it's a single static binary with postgres and nothing else, and it's apache-2.0,
-not agpl.
+it's a single static binary with postgres and nothing else. the engine is agpl-3.0,
+the client sdks are apache, and there's a commercial license if agpl doesn't fit
+your shop.
 
 the one thing i actually care about: your meter and your invoice can't silently
 disagree. every event you send is idempotent and the dedup window is documented.
@@ -144,10 +145,12 @@ GET  /v1/reconcile/{id}                         -> 409
   the business model (no % of your revenue, which is stripe's own revenue line so
   they can't drop it) and independence (cross-provider). the experience gets you
   loved, the structure is why the giant can't take it back.
-- "agpl?" no, apache-2.0 on purpose. agpl scares legal teams, that's the lane i want.
-- "how is this different from lago/openmeter?" lago is agpl and heavy to self-host
-  and the portal is a paid add-on. openmeter wants kafka/clickhouse. mine is one
-  binary + postgres, permissive license, portal free.
+- "agpl?" yes, agpl-3.0 on the engine — but the client sdks are apache (your app
+  stays clean) and there's a clean commercial license if your legal team can't take
+  agpl. open source that can fund itself, not a crippled community edition.
+- "how is this different from lago/openmeter?" lago is heavy to self-host and gates
+  the portal behind premium. openmeter wants kafka/clickhouse. mine is one binary +
+  postgres, portal + dunning free in the core, provable reconciliation, ai/mcp-native.
 - "is the finance-can-do-it-without-an-engineer claim real?" no, and i won't
   pretend. config is no-code, but ingestion is ~10 lines of sdk. being honest about
   that.

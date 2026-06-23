@@ -2,7 +2,7 @@
 
 **Open-source usage billing for AI apps and solo devs. Flat-priced, never a percent of your revenue.**
 
-A single Go binary + Postgres that meters usage, sends correct invoices, and can *prove* your meter and your invoice never silently disagree. Sits on top of Stripe (or any processor), never becomes a Merchant of Record. Apache-2.0.
+A single Go binary + Postgres that meters usage, sends correct invoices, and can *prove* your meter and your invoice never silently disagree. Sits on top of Stripe (or any processor), never becomes a Merchant of Record. AGPLv3 engine + Apache-2.0 SDKs; commercial license available.
 
 > Stripe Billing takes 0.7% of your revenue. Lago, Orb, Metronome, and Zuora feel built for a 50-person finance team. **smolbill is for the rest of us** — meter usage, send a correct bill, no sales call, no cut of your money.
 
@@ -19,8 +19,8 @@ A single static binary (Postgres, or in-memory for zero-setup) that gives you:
 - **A from-the-ground-up AI sandbox** — your agent (Claude/Cursor) configures billing by passing *intent* over MCP, and can **simulate a pricing change against your real usage** (`/v1/invoices/simulate`) before committing a thing. The deterministic engine does every cent; the model never touches the math.
 - **The Stripe rail, decoupled** — invoicing/charges only, behind a processor-agnostic interface. smolbill never holds funds or becomes a Merchant of Record, so a processor freeze can't take down your billing logic.
 - **A free embeddable customer portal + wallet** — the feature others charge ~$1,500/mo for, in the OSS core.
-- **Decline-aware dunning** — failed-payment recovery with a *transparent, configurable* retry cadence (not a black box) that routes by decline reason: soft declines retry on a research-grounded schedule, a dead card or an SCA challenge stops immediately instead of burning attempts. This is the capability Lago gates behind a premium license (email sales) and Chargebee behind a ~$250/mo add-on — here in Apache-2.0.
-- Flat-priced, **never a percent of your revenue.** Apache-2.0, not AGPL.
+- **Decline-aware dunning** — failed-payment recovery with a *transparent, configurable* retry cadence (not a black box) that routes by decline reason: soft declines retry on a research-grounded schedule, a dead card or an SCA challenge stops immediately instead of burning attempts. This is the capability Lago gates behind a premium license (email sales) and Chargebee behind a ~$250/mo add-on — here in the open core.
+- Flat-priced, **never a percent of your revenue.** Open core under AGPLv3; permissive (Apache-2.0) client SDKs; commercial license if AGPL doesn't fit.
 
 Money math is integer-precise decimals (never floats) and rounds toward under-billing. The HTTP API and the MCP server compute through one shared engine, so a human and an agent can never get different numbers.
 
@@ -118,6 +118,14 @@ Then just **say what you want** and it's done:
 The agent calls `quickstart_billing` and you have a working plan + a previewable
 invoice in one step. (Raw binary still works: `smolbill mcp`. See [sdk/mcp](sdk/mcp).)
 
+**Works with any MCP client, local or remote.** The default `smolbill mcp` speaks
+the **stdio** transport — Claude Code/Desktop, Cursor, Cline, Windsurf, Zed,
+Continue. For hosted clients (ChatGPT, claude.ai connectors, remote agents), run
+`smolbill mcp --http` to serve the **Streamable HTTP** transport on `ADDR` at
+`/mcp`. The server negotiates the MCP protocol version by echoing the client's
+requested revision, so newer/stricter clients connect without being pinned to an
+old one.
+
 The agent can drive **every feature**, not just setup — the intended path is **connect your agent and run your billing by talking** (for purists, every tool has a REST endpoint and SDK call too):
 
 - **configure:** `create_customer`, `create_meter`, `create_plan`, `attach_plan`, `create_entitlement`, `create_webhook`, `set_spend_cap`
@@ -130,9 +138,12 @@ All tools are **intent-only**: there is deliberately **no `charge()` or `calcula
 
 The whole UI is server-rendered HTML embedded in the single binary (no Next.js, no build step, no framework) — visit `/dashboard`. The embeddable **customer portal** at `/portal/{id}` shows a customer their live usage, projected bill, wallet balance, and entitlement limits, with a subtle "metered by smolbill" footer. This is the feature Lago charges ~$1,500/mo for, given away in the OSS core (and a built-in distribution loop).
 
-### Payments (Stripe) + spend alerts
+### Payments (bring any processor) + spend alerts
 
-- **Stripe** is a processor-agnostic adapter (`internal/payments`): `Processor` interface, a thin net/http `stripe.Client` (amounts sent as exact integer cents, idempotency keys on every call), and a `fake` test double. Set `STRIPE_SECRET_KEY` and `finalize` pushes the invoice to Stripe; unset, finalize is local-only. smolbill never holds funds or becomes a Merchant of Record.
+- **Any processor, one interface.** `internal/payments` defines a small `Processor` interface (`PushInvoice` / `FetchInvoice` / `ChargeInvoice`); the engine depends only on it and never imports a concrete rail. Adapters ship for **Stripe, Dodo, Paddle, Lemon Squeezy, Polar, Creem, Razorpay, and a non-custodial crypto/stablecoin rail** — each a thin net/http client (amounts sent as exact integer minor units, idempotency keys on every call), plus a `fake` test double.
+- **Selection is environment-driven.** Set `SMOLBILL_PROCESSOR=stripe|dodo|paddle|lemonsqueezy|polar|creem|razorpay|crypto`, or just set one provider's credentials and smolbill auto-detects it (Stripe wins ties for backward compatibility). With a rail configured, `finalize` pushes the invoice to it; unset, finalize is local-only (the ledger is still written). smolbill never holds funds or becomes a Merchant of Record for *your* customers.
+- **MoR rails self-dunn.** Stripe supports off-session retries (smolbill drives dunning). The Merchant-of-Record rails (Dodo/Paddle/Lemon Squeezy/Polar/Creem) and the push-only crypto rail manage collection themselves, so smolbill's `ChargeInvoice` surfaces an explicit error there rather than mis-routing it as a card decline — keep internal dunning off for those.
+- Adding a rail is one file behind the interface + one line in `internal/payments/providers`.
 - **Spend alerts** fire automatically on ingest: when a customer's projected current-period spend crosses each threshold of their budget, smolbill POSTs to the webhook — before the overage. Each threshold fires at most once per period (no spam).
 
 ### The reconciliation ledger (the demo)
@@ -164,14 +175,14 @@ The meter and the invoice can never *silently* disagree: at finalize we persist 
 - **Store** (`internal/store`) — one interface, two backends: `memory` (tests, demo) and `postgres` (pgx, embedded schema applied on connect). The engine never depends on a concrete DB.
 - **HTTP** (`internal/api`) — the `/v1` surface above, no web framework (net/http 1.22+ routing → single binary).
 - **Reconcile** (`internal/reconcile`) — pure diff of stored ledger vs. live recompute; the proof behind `/v1/reconcile`.
-- **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, `stripe` thin client (exact cents, idempotency), `fake` test double.
+- **Payments** (`internal/payments`) — processor-agnostic rail: `Processor` interface, thin clients for `stripe`/`dodo`/`paddle`/`lemonsqueezy`/`polar`/`creem`/`razorpay`/`crypto` (exact minor units, idempotency), a `fake` test double, and a `providers` registry that selects the rail from the environment.
 - **Alerts** (`internal/alerts`) — pure 50/80/100% threshold logic + webhook notifier; evaluated on every ingest.
 - **Webhooks** (`internal/webhook`) — signed (HMAC-SHA256, `X-Smolbill-Signature`) outbound delivery of lifecycle events (`invoice.finalized`, `drift.detected`, plus the dunning events below); fired on finalize and on every drift the reconciler catches, best-effort so a slow endpoint never blocks billing.
 - **Dunning** (`internal/dunning`) — the pure failed-payment-recovery state machine: a configurable retry `Schedule` (default +2h/+1d/+3d/+5d/+7d, grounded in Recurly's 40M-transaction data) and decline-reason routing (`Classify`) so hard declines and SCA challenges stop instead of retrying. Drives `invoice.payment_failed` / `invoice.recovered` / `invoice.action_required` / `invoice.uncollectible` webhooks. No clock of its own — every transition is unit-tested.
 - **Comms** (`internal/comms`) — the branded, escalating dunning copy, rendered per event. Templates are **yours to read, edit, and preview** (default copy built in; overrides stored), and the rendered subject+body rides in every dunning webhook so your ESP/SMS just sends it. This inverts the merchant-of-record black box that hides the emails from you.
 - **Web** (`internal/api/web.go` + `templates/`) — server-rendered dashboard, reconcile view, and embeddable customer portal; HTML embedded via `go:embed` (single binary).
 - **Engine** (`internal/engine`) — shared compute + plan-building used by both the REST API and the MCP server, so the two can never disagree.
-- **MCP** (`internal/mcp`) — intent-only MCP server over stdio (no SDK); the agent sets rules, never touches money math.
+- **MCP** (`internal/mcp`) — intent-only MCP server (no SDK) over both **stdio** (local editors) and **Streamable HTTP** (`smolbill mcp --http`, for remote clients), with protocol-version negotiation; the agent sets rules, never touches money math.
 - **Schema** (`migrations/0001_init.sql`) — the full v0 Postgres data model from the build plan §8.
 
 ## Run it
@@ -207,4 +218,30 @@ Postgres integration tests run when `SMOLBILL_TEST_DATABASE_URL` is set; otherwi
 
 ## License
 
-Apache-2.0 (intentionally not AGPL).
+**The engine is AGPLv3. The client SDKs are Apache-2.0. A commercial license is
+available** for anyone who can't take the AGPL — see [COMMERCIAL.md](COMMERCIAL.md).
+
+- **Engine** (`cmd/`, `internal/`) — **AGPLv3**. Real OSI open source: self-host,
+  read, fork, ship. The one obligation: if you modify it and offer it over a network,
+  or distribute it, you release your source too — *or* buy a commercial license.
+- **Client SDKs** (`sdk/python`, `sdk/typescript`, `sdk/mcp`) — **Apache-2.0**, so
+  your app can depend on the smolbill client with no copyleft obligation.
+- **Commercial license** — a non-AGPL grant to embed smolbill in a closed-source
+  product or hosted service, plus the closed-source Pro features. Most enterprises
+  have a no-AGPL policy; this is how they (and closed competitors) use it legally.
+
+### What's open vs Pro
+
+| | Open core (AGPLv3, free) | Pro / Cloud (paid, closed) |
+|---|---|---|
+| Engine, deterministic invoicing, **reconciliation proof** | ✅ | |
+| MCP (stdio + HTTP) + REST + SDKs | ✅ | |
+| All payment-rail adapters (Stripe, Dodo, Paddle, Lemon Squeezy, Polar, Creem, Razorpay, crypto) | ✅ | |
+| Dashboard + customer portal + transparent dunning logic | ✅ | |
+| Revenue analytics, SSO/RBAC, audit retention | | ✅ |
+| Cross-merchant ML retry timing, card-updater / network tokens | | ✅ |
+| Managed hosting, hosted MCP at scale, SLA | | ✅ |
+
+Pro features are genuinely closed (not a crippled "community edition") — several
+(cross-merchant ML, network tokens) *can't* be self-hosted. See
+[BUSINESS.md](BUSINESS.md) for the full model.
