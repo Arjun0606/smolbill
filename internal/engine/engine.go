@@ -121,12 +121,16 @@ type TierInput struct {
 
 // PriceInput is one price as supplied over the wire.
 type PriceInput struct {
-	MeterCode  string      `json:"meter_code"`
-	Model      string      `json:"model"`
-	Currency   string      `json:"currency"`
-	UnitAmount string      `json:"unit_amount"`
-	FlatAmount string      `json:"flat_amount"`
-	Tiers      []TierInput `json:"tiers"`
+	MeterCode     string      `json:"meter_code"`
+	Model         string      `json:"model"`
+	Currency      string      `json:"currency"`
+	UnitAmount    string      `json:"unit_amount"`
+	FlatAmount    string      `json:"flat_amount"`
+	Tiers         []TierInput `json:"tiers"`
+	PackageSize   string      `json:"package_size"`
+	Percentage    string      `json:"percentage"`
+	MinimumAmount string      `json:"minimum_amount"`
+	MaximumAmount string      `json:"maximum_amount"`
 }
 
 // PlanInput is a plan as supplied over the wire.
@@ -152,6 +156,8 @@ func BuildPlan(in PlanInput) (domain.Plan, error) {
 			ID: id.New("price"), MeterCode: pr.MeterCode,
 			Model: domain.PriceModel(pr.Model), Currency: pr.Currency,
 			UnitAmount: parseDecOr0(pr.UnitAmount), FlatAmount: parseDecOr0(pr.FlatAmount),
+			PackageSize: parseDecOr0(pr.PackageSize), Percentage: parseDecOr0(pr.Percentage),
+			MinimumAmount: parseDecOr0(pr.MinimumAmount), MaximumAmount: parseDecOr0(pr.MaximumAmount),
 		}
 		for _, t := range pr.Tiers {
 			tier := domain.Tier{UnitAmount: parseDecOr0(t.UnitAmount), FlatAmount: parseDecOr0(t.FlatAmount)}

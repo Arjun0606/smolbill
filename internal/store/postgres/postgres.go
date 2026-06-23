@@ -207,10 +207,11 @@ func (s *Store) PutPlan(p domain.Plan) error {
 			}
 		}
 		if _, err := tx.Exec(s.ctx,
-			`INSERT INTO prices (id, plan_id, meter_code, model, currency, unit_amount, flat_amount, tiers)
-			 VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8)`,
+			`INSERT INTO prices (id, plan_id, meter_code, model, currency, unit_amount, flat_amount, tiers, package_size, percentage, minimum_amount, maximum_amount)
+			 VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8,$9::numeric,$10::numeric,$11::numeric,$12::numeric)`,
 			pr.ID, p.ID, nullStr(pr.MeterCode), string(pr.Model), pr.Currency,
 			pr.UnitAmount.String(), pr.FlatAmount.String(), nullJSON(tiers),
+			pr.PackageSize.String(), pr.Percentage.String(), pr.MinimumAmount.String(), pr.MaximumAmount.String(),
 		); err != nil {
 			return fmt.Errorf("postgres: insert price: %w", err)
 		}
@@ -230,7 +231,8 @@ func (s *Store) GetPlan(pid string) (domain.Plan, bool, error) {
 		return domain.Plan{}, false, fmt.Errorf("postgres: GetPlan: %w", err)
 	}
 	rows, err := s.pool.Query(s.ctx,
-		`SELECT id, meter_code, model, currency, unit_amount::text, flat_amount::text, tiers
+		`SELECT id, meter_code, model, currency, unit_amount::text, flat_amount::text, tiers,
+		        package_size::text, percentage::text, minimum_amount::text, maximum_amount::text
 		 FROM prices WHERE plan_id = $1 ORDER BY id`, pid)
 	if err != nil {
 		return domain.Plan{}, false, fmt.Errorf("postgres: GetPlan prices: %w", err)
@@ -240,8 +242,10 @@ func (s *Store) GetPlan(pid string) (domain.Plan, bool, error) {
 		var pr domain.Price
 		var meterCode, model, currency *string
 		var unit, flat *string
+		var pkgSize, pct, minAmt, maxAmt *string
 		var tiers []byte
-		if err := rows.Scan(&pr.ID, &meterCode, &model, &currency, &unit, &flat, &tiers); err != nil {
+		if err := rows.Scan(&pr.ID, &meterCode, &model, &currency, &unit, &flat, &tiers,
+			&pkgSize, &pct, &minAmt, &maxAmt); err != nil {
 			return domain.Plan{}, false, fmt.Errorf("postgres: scan price: %w", err)
 		}
 		pr.PlanID = pid
@@ -250,6 +254,10 @@ func (s *Store) GetPlan(pid string) (domain.Plan, bool, error) {
 		pr.Currency = derefStr(currency)
 		pr.UnitAmount = parseDec(unit)
 		pr.FlatAmount = parseDec(flat)
+		pr.PackageSize = parseDec(pkgSize)
+		pr.Percentage = parseDec(pct)
+		pr.MinimumAmount = parseDec(minAmt)
+		pr.MaximumAmount = parseDec(maxAmt)
 		if len(tiers) > 0 {
 			if err := json.Unmarshal(tiers, &pr.Tiers); err != nil {
 				return domain.Plan{}, false, fmt.Errorf("postgres: unmarshal tiers: %w", err)

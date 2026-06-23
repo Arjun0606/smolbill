@@ -34,6 +34,8 @@ const (
 	ModelPerUnit         PriceModel = "per_unit"         // unit_amount * quantity
 	ModelTieredGraduated PriceModel = "tiered_graduated" // quantity split across tiers, each portion at its rate
 	ModelTieredVolume    PriceModel = "tiered_volume"    // whole quantity priced at the single tier it lands in
+	ModelPackage         PriceModel = "package"          // charge unit_amount per block of package_size units (rounded up)
+	ModelPercentage      PriceModel = "percentage"       // percentage of the metered monetary base (e.g. marketplace commission)
 )
 
 // Customer is the billed entity.
@@ -80,9 +82,19 @@ type Price struct {
 	MeterCode  string          `json:"meter_code"` // empty for a pure flat subscription fee
 	Model      PriceModel      `json:"model"`
 	Currency   string          `json:"currency"`
-	UnitAmount decimal.Decimal `json:"unit_amount"` // for per_unit
+	UnitAmount decimal.Decimal `json:"unit_amount"` // per_unit; also price-per-block for package
 	FlatAmount decimal.Decimal `json:"flat_amount"` // for flat
 	Tiers      []Tier          `json:"tiers"`       // for tiered_graduated / tiered_volume, ascending by UpTo
+	// PackageSize is the block size for the package model: charge ceil(qty/size)
+	// blocks at UnitAmount (e.g. $10 per 1,000 events).
+	PackageSize decimal.Decimal `json:"package_size"`
+	// Percentage is the rate for the percentage model, as a percent (2.5 = 2.5%) of
+	// the metered monetary base — for a customer who resells / takes a commission.
+	Percentage decimal.Decimal `json:"percentage"`
+	// MinimumAmount floors this charge (minimum spend / commitment); zero = no floor.
+	MinimumAmount decimal.Decimal `json:"minimum_amount"`
+	// MaximumAmount caps this charge; zero = uncapped.
+	MaximumAmount decimal.Decimal `json:"maximum_amount"`
 }
 
 // Plan is a versioned, immutable-once-published bundle of prices (§8).

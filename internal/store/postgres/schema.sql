@@ -44,11 +44,15 @@ CREATE TABLE IF NOT EXISTS prices (
     id          TEXT PRIMARY KEY,
     plan_id     TEXT NOT NULL REFERENCES plans(id),
     meter_code  TEXT REFERENCES meters(code),   -- NULL for a pure flat fee
-    model       TEXT NOT NULL CHECK (model IN ('flat','per_unit','tiered_graduated','tiered_volume')),
+    model       TEXT NOT NULL CHECK (model IN ('flat','per_unit','tiered_graduated','tiered_volume','package','percentage')),
     currency    TEXT NOT NULL,
-    unit_amount NUMERIC,        -- per_unit
+    unit_amount NUMERIC,        -- per_unit; also price-per-block for package
     flat_amount NUMERIC,        -- flat
     tiers       JSONB,          -- tiered_graduated / tiered_volume: [{up_to, unit_amount, flat_amount}]
+    package_size   NUMERIC,     -- package: units per block
+    percentage     NUMERIC,     -- percentage: percent of the metered base
+    minimum_amount NUMERIC,     -- optional floor on the charge (minimum spend / commitment)
+    maximum_amount NUMERIC,     -- optional cap on the charge
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

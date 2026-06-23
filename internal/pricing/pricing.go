@@ -25,6 +25,19 @@ func Calculate(p domain.Price, quantity decimal.Decimal) (money.Amount, error) {
 	if quantity.IsNegative() {
 		return money.Amount{}, fmt.Errorf("pricing: negative quantity %s for price %q", quantity, p.ID)
 	}
+	amt, err := base(p, quantity)
+	if err != nil {
+		return money.Amount{}, err
+	}
+	// A commitment / cap applies after the model computes: MinimumAmount floors the
+	// charge (minimum spend) and MaximumAmount caps it. Both are optional (zero =
+	// unset). This is what lets a usage charge guarantee a floor — e.g. "$50/mo
+	// minimum, metered above that" — which Stripe and Chargebee can't express cleanly.
+	return applyBounds(p, amt), nil
+}
+
+// base computes the raw charge for the price's model, before any min/max bound.
+func base(p domain.Price, quantity decimal.Decimal) (money.Amount, error) {
 	switch p.Model {
 	case domain.ModelFlat:
 		return money.New(p.FlatAmount, p.Currency), nil
@@ -38,9 +51,60 @@ func Calculate(p domain.Price, quantity decimal.Decimal) (money.Amount, error) {
 	case domain.ModelTieredVolume:
 		return volume(p, quantity)
 
+	case domain.ModelPackage:
+		return packagePrice(p, quantity)
+
+	case domain.ModelPercentage:
+		return percentage(p, quantity)
+
 	default:
 		return money.Amount{}, fmt.Errorf("pricing: unknown model %q for price %q", p.Model, p.ID)
 	}
+}
+
+// applyBounds floors the amount at MinimumAmount and caps it at MaximumAmount when
+// those are set (non-zero). The floor is applied before the cap.
+func applyBounds(p domain.Price, amt money.Amount) money.Amount {
+	if !p.MinimumAmount.IsZero() {
+		min := money.New(p.MinimumAmount, p.Currency)
+		if amt.Cmp(min) < 0 {
+			amt = min
+		}
+	}
+	if !p.MaximumAmount.IsZero() {
+		max := money.New(p.MaximumAmount, p.Currency)
+		if amt.Cmp(max) > 0 {
+			amt = max
+		}
+	}
+	return amt
+}
+
+// packagePrice charges UnitAmount per whole block of PackageSize units, rounding the
+// block count UP — Stripe "package" semantics ($10 per 1,000 events: 2,500 -> 3
+// blocks -> $30). Zero usage costs nothing.
+func packagePrice(p domain.Price, quantity decimal.Decimal) (money.Amount, error) {
+	if !p.PackageSize.IsPositive() {
+		return money.Amount{}, fmt.Errorf("pricing: package model requires a positive package_size for price %q", p.ID)
+	}
+	if quantity.IsZero() {
+		return money.Zero(p.Currency), nil
+	}
+	blocks := quantity.Div(p.PackageSize).Ceil()
+	return money.New(p.UnitAmount, p.Currency).MulQuantity(blocks), nil
+}
+
+// percentage charges Percentage percent of the metered monetary base (the quantity
+// here is the summed value the rate applies to, e.g. a marketplace's GMV). This is
+// the commission model — the customer routes their transaction value through a meter
+// and smolbill computes the cut. (Note: this is OUR customers charging a percentage;
+// smolbill itself never takes a percent of anyone's revenue.)
+func percentage(p domain.Price, base decimal.Decimal) (money.Amount, error) {
+	if p.Percentage.IsNegative() {
+		return money.Amount{}, fmt.Errorf("pricing: percentage must be non-negative for price %q", p.ID)
+	}
+	rate := p.Percentage.Div(decimal.NewFromInt(100))
+	return money.New(base, p.Currency).MulQuantity(rate), nil
 }
 
 // graduated splits the quantity across tiers: the units that fall inside each

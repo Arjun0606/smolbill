@@ -55,9 +55,15 @@ changes close it:
 - **We dogfood smolbill to bill the Cloud.** smolbill meters our customers' usage and
   computes their invoice; Dodo collects it. The best demo is that it runs our own
   billing: if it's correct enough for our money, it's correct enough for yours.
-- **Pricing = flat fee + usage.** A flat base covers the managed instance / license;
-  usage scales with how much they bill through us. **Never a percent of their
-  revenue** — that's the wedge against Stripe Billing's 0.7%.
+- **Pricing = flat base + usage-based, the Supabase way.** A small flat base covers
+  the managed instance; on top, customers pay for what they *consume* — metered on
+  the engine's own operational usage (events ingested, invoices finalized, active
+  billed customers), **which we meter with smolbill itself** (dogfooding). This is
+  **never a percent of their revenue**: a customer doing $1M/mo pays for their billing
+  *volume*, not a slice of their money — far cheaper than a 0.7% cut, while still
+  growing with their scale (so we earn more than a pure flat fee would). The wedge
+  against Stripe Billing's 0.7% and Chargebee's 0.75% is exactly this: usage-based,
+  not revenue-based.
 
 ## The funnel (free → paid, at the friction points)
 
