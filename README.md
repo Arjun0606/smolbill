@@ -140,7 +140,9 @@ The agent can drive **every feature**, not just setup — the intended path is *
 
 - **configure:** `create_customer`, `create_meter`, `create_plan`, `attach_plan`, `create_entitlement`, `create_webhook`, `set_spend_cap`
 - **operate:** `record_usage`, `finalize_invoice`, `topup_wallet`, `collect_invoice`, `run_dunning`
-- **observe / prove:** `list_customers`, `list_meters`, `list_webhooks`, `get_usage` (with `as_of` time-travel), `preview_invoice`, `simulate_plan_change`, `reconcile_invoice`, `verify_invoice`, `check_entitlement`, `get_wallet`, `get_collection`, `get_analytics`
+- **observe / prove:** `list_customers`, `list_plans`, `list_subscriptions`, `list_invoices`, `list_meters`, `list_webhooks`, `get_usage` (with `as_of` time-travel), `preview_invoice`, `simulate_plan_change`, `reconcile_invoice`, `verify_invoice`, `check_entitlement`, `get_wallet`, `get_collection`, `get_analytics`
+
+**No learning curve.** On connect, the agent reads smolbill's `instructions` (returned in the MCP `initialize` result) and calls `get_started` to orient itself — so it knows the flows, the safety rules, and your account's next step before you ask. You never read these docs; the agent already did.
 
 All tools are **intent-only**: there is deliberately **no `charge()` or `calculate_bill()`** — the agent passes intent; the deterministic engine computes every cent (`collect_invoice`/`run_dunning` ask the *processor* to charge, they never do the math). A test asserts no money-math tool can ever be exposed.
 
