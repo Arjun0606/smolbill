@@ -361,6 +361,7 @@ export class Smolbill {
       this.request<SimulationResult>("POST", "/v1/invoices/simulate", req),
     finalize: (req: { subscription_id: string }) =>
       this.request<Invoice>("POST", "/v1/invoices/finalize", req),
+    scanDrift: () => this.verdict(`/v1/reconcile`),
     reconcile: (invoiceId: string) =>
       this.verdict(`/v1/reconcile/${encodeURIComponent(invoiceId)}`),
     verify: (invoiceId: string) =>

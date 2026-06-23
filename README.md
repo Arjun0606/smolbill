@@ -8,7 +8,7 @@ A single Go binary + Postgres that meters usage, sends correct invoices, and can
 
 > Stripe Billing takes 0.7% of your revenue. Lago, Orb, Metronome, and Zuora feel built for a 50-person finance team. **smolbill is for the rest of us** — meter usage, send a correct bill, no sales call, no cut of your money.
 
-> **The AI-native loop:** your agent sets the rule → deterministic code does the math → a reconciliation ledger proves it never drifted. The AI passes *intent* (`attach_plan`), never money (`calculate_and_charge` is forbidden) — a hallucinated decimal in billing ends a business relationship, so the AI never touches the math.
+> **The AI-native loop:** your agent runs your whole billing in plain English over MCP — set up pricing, attach plans, check usage, *prove a bill is correct* — and the deterministic engine does every cent. The agent passes *intent*, never money (`calculate_and_charge` is forbidden), and the three tools that move real money stay in **preview until you arm them** (the agent can't arm itself). Lago and Stripe ship agent-operated billing MCPs with no money guardrail; smolbill is the one that's provably correct **and** structurally can't let the agent move money it shouldn't — and isn't owned by your payment processor.
 
 <p align="center">
   <img src="assets/demo.gif" alt="smolbill computes a real invoice, then proves the meter and the invoice agree with a hash" width="760">

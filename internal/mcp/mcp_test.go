@@ -299,11 +299,19 @@ func TestFullLifecycleByAI(t *testing.T) {
 	if rec, isErr := s.callTool("reconcile_invoice", map[string]any{"invoice_id": invID}); isErr || !strings.Contains(rec, "reconciles") {
 		t.Fatalf("reconcile (clean) = %q", rec)
 	}
+	// Account-wide scan: clean account reports all consistent.
+	if scan, _ := s.callTool("scan_billing_drift", nil); !strings.Contains(scan, "ALL consistent") {
+		t.Fatalf("scan (clean) = %q", scan)
+	}
 
 	// A late event lands after finalize — reconcile must catch the drift.
 	s.ingestTokens(custID, "late", 5000)
 	if rec, _ := s.callTool("reconcile_invoice", map[string]any{"invoice_id": invID}); !strings.Contains(rec, "DRIFT") {
 		t.Fatalf("reconcile should detect drift: %q", rec)
+	}
+	// And the account-wide scan now flags drift + money at risk.
+	if scan, _ := s.callTool("scan_billing_drift", nil); !strings.Contains(scan, "DRIFT DETECTED") || !strings.Contains(scan, "at risk") {
+		t.Fatalf("scan should detect account drift: %q", scan)
 	}
 
 	if an, isErr := s.callTool("get_analytics", nil); isErr || !strings.Contains(an, "customers: 1") {

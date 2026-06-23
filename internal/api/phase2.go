@@ -13,6 +13,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
 	"github.com/Arjun0606/smolbill/internal/revrec"
+	"github.com/shopspring/decimal"
 )
 
 // revenueRecognition returns the ASC 606 straight-line recognition schedule for a
@@ -228,6 +229,81 @@ func (s *Server) verifyInvoice(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, status, resp)
+}
+
+// --- GET /v1/reconcile — ACCOUNT-WIDE DRIFT SCAN ---
+//
+// Reconciles EVERY finalized invoice against a fresh recompute from the live event
+// log and reports how many drifted plus the total money at risk. This is the
+// "verify in the engine, not in a BigQuery shadow ledger" capability: revenue
+// leakage (industry estimates 1-5% of revenue) made provable and quantified in one
+// call. Complements the per-invoice GET /v1/reconcile/{invoice_id}.
+func (s *Server) scanDrift(w http.ResponseWriter, r *http.Request) {
+	invs, err := s.store.ListInvoices()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	type drifted struct {
+		InvoiceID   string   `json:"invoice_id"`
+		CustomerID  string   `json:"customer_id"`
+		StoredTotal string   `json:"stored_total"`
+		LiveTotal   string   `json:"live_total"`
+		Drift       string   `json:"drift"`
+		Currency    string   `json:"currency"`
+		Diffs       []string `json:"diffs,omitempty"`
+	}
+	var scanned, consistent int
+	atRisk := map[string]decimal.Decimal{}
+	drifts := make([]drifted, 0)
+
+	for _, inv := range invs {
+		// Only finalized invoices have a reconciliation ledger to check against.
+		ledger, lerr := s.store.GetLedger(inv.ID)
+		if lerr != nil || len(ledger) == 0 {
+			continue
+		}
+		live, rerr := s.recomputeForInvoice(inv)
+		if rerr != nil {
+			continue
+		}
+		proof := reconcile.Build(inv, ledger, live)
+		scanned++
+		if proof.Consistent {
+			consistent++
+			continue
+		}
+		d := inv.Total.Sub(live.Invoice.Total).Abs()
+		atRisk[inv.Currency] = atRisk[inv.Currency].Add(d)
+		drifts = append(drifts, drifted{
+			InvoiceID: inv.ID, CustomerID: inv.CustomerID,
+			StoredTotal: money.Format(inv.Total, inv.Currency),
+			LiveTotal:   money.Format(live.Invoice.Total, inv.Currency),
+			Drift:       money.Format(d, inv.Currency),
+			Currency:    inv.Currency, Diffs: proof.Diffs,
+		})
+	}
+
+	atRiskOut := map[string]string{}
+	for cur, amt := range atRisk {
+		atRiskOut[cur] = money.Format(amt, cur)
+	}
+	verdict := "all_consistent"
+	if len(drifts) > 0 {
+		verdict = "drift_detected"
+	}
+	status := http.StatusOK
+	if len(drifts) > 0 {
+		status = http.StatusConflict // lets monitoring alert on account-wide drift
+	}
+	writeJSON(w, status, map[string]any{
+		"scanned":        scanned,
+		"consistent":     consistent,
+		"drifted":        len(drifts),
+		"amount_at_risk": atRiskOut,
+		"invoices":       drifts,
+		"verdict":        verdict,
+	})
 }
 
 // recomputeForInvoice runs the deterministic engine over the CURRENT event log

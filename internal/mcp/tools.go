@@ -154,6 +154,12 @@ func (s *Server) buildTools() []tool {
 			handler:     s.reconcileInvoiceTool,
 		},
 		{
+			name:        "scan_billing_drift",
+			description: "Scan the WHOLE account for billing drift: reconcile every finalized invoice against a fresh recompute from the live events and report how many drifted plus the total money at risk. This is the 'find revenue leakage' / 'prove all my invoices are correct' tool — answer 'is any of my billing wrong?' in one call, with the exact invoices and dollar amounts.",
+			inputSchema: obj(map[string]any{}),
+			handler:     s.scanDriftTool,
+		},
+		{
 			name:        "get_revenue_recognition",
 			description: "ASC 606 revenue recognition for a finalized invoice as of a date: how much is recognized revenue vs still deferred, straight-line over the service period. Optional as_of (RFC3339); defaults to now.",
 			inputSchema: obj(map[string]any{"invoice_id": str("invoice id"), "as_of": str("RFC3339 date; defaults to now")}, "invoice_id"),
@@ -455,6 +461,60 @@ func (s *Server) reconcileInvoiceTool(_ context.Context, args json.RawMessage) (
 			fmt.Fprintf(&b, "  • [%s] %s\n", l.MeterCode, d)
 		}
 	}
+	return b.String(), nil
+}
+
+func (s *Server) scanDriftTool(_ context.Context, _ json.RawMessage) (string, error) {
+	invs, err := s.store.ListInvoices()
+	if err != nil {
+		return "", err
+	}
+	var scanned, consistent int
+	atRisk := map[string]decimal.Decimal{}
+	var lines []string
+	for _, inv := range invs {
+		ledger, lerr := s.store.GetLedger(inv.ID)
+		if lerr != nil || len(ledger) == 0 {
+			continue
+		}
+		sub, ok, serr := s.store.GetSubscription(inv.SubscriptionID)
+		if serr != nil || !ok {
+			continue
+		}
+		sub.CurrentPeriodStart = inv.PeriodStart
+		sub.CurrentPeriodEnd = inv.PeriodEnd
+		live, cerr := engine.Compute(s.store, sub)
+		if cerr != nil {
+			continue
+		}
+		scanned++
+		if reconcile.Build(inv, ledger, live).Consistent {
+			consistent++
+			continue
+		}
+		d := inv.Total.Sub(live.Invoice.Total).Abs()
+		atRisk[inv.Currency] = atRisk[inv.Currency].Add(d)
+		lines = append(lines, fmt.Sprintf("  • %s (customer %s): stored %s vs live %s, drift %s %s",
+			inv.ID, inv.CustomerID, money.Format(inv.Total, inv.Currency), money.Format(live.Invoice.Total, inv.Currency),
+			money.Format(d, inv.Currency), inv.Currency))
+	}
+	if scanned == 0 {
+		return "No finalized invoices to scan yet.", nil
+	}
+	if len(lines) == 0 {
+		return fmt.Sprintf("Scanned %d finalized invoice(s): ALL consistent. Every bill provably matches its events — no drift, no leakage.", scanned), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "DRIFT DETECTED across the account: %d of %d invoice(s) disagree with the live events.\n", len(lines), scanned)
+	b.WriteString("Money at risk:")
+	for cur, amt := range atRisk {
+		fmt.Fprintf(&b, " %s %s", money.Format(amt, cur), cur)
+	}
+	b.WriteString("\n")
+	for _, l := range lines {
+		b.WriteString(l + "\n")
+	}
+	b.WriteString("Reconcile each with reconcile_invoice to see the exact line-level cause.")
 	return b.String(), nil
 }
 

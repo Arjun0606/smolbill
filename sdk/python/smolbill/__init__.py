@@ -211,6 +211,10 @@ class _Invoices:
     def finalize(self, *, subscription_id: str) -> Any:
         return self._c._request("POST", "/v1/invoices/finalize", {"subscription_id": subscription_id})
 
+    def scan_drift(self) -> dict[str, Any]:
+        """Account-wide drift scan: reconcile every finalized invoice, quantify money at risk."""
+        return self._c._verdict("/v1/reconcile")
+
     def reconcile(self, invoice_id: str) -> dict[str, Any]:
         return self._c._verdict(f"/v1/reconcile/{urllib.parse.quote(invoice_id)}")
 
