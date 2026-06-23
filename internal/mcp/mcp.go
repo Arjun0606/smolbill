@@ -314,7 +314,7 @@ func (s *Server) callTool(ctx context.Context, req rpcRequest) rpcResponse {
 	}
 	for _, t := range s.tools {
 		if t.name == p.Name {
-			text, err := t.handler(ctx, p.Arguments)
+			text, err := s.runTool(ctx, t, p.Arguments)
 			if err != nil {
 				return s.reply(req.ID, toolResult(err.Error(), true))
 			}
@@ -322,6 +322,18 @@ func (s *Server) callTool(ctx context.Context, req rpcRequest) rpcResponse {
 		}
 	}
 	return s.reply(req.ID, toolResult(fmt.Sprintf("unknown tool %q", p.Name), true))
+}
+
+// runTool invokes a tool handler, recovering from a panic into an error result so
+// a single bad tool can never crash the agent's connection (or the engine, since
+// the MCP server shares the process with /v1).
+func (s *Server) runTool(ctx context.Context, t tool, args json.RawMessage) (text string, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("tool %q failed (internal error)", t.name)
+		}
+	}()
+	return t.handler(ctx, args)
 }
 
 // toolResult builds an MCP tool result with a single text content block.

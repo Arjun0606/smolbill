@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"slices"
@@ -159,8 +160,12 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// maxRequestBody bounds a request body so an unbounded POST can't exhaust memory.
+// Billing payloads (events, plans, customers) are small; 1 MiB is generous.
+const maxRequestBody = 1 << 20
+
 func decodeBody(r *http.Request, v any) error {
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxRequestBody))
 	dec.DisallowUnknownFields()
 	// UseNumber keeps JSON numbers as exact json.Number text instead of float64, so a
 	// usage event's quantity (e.g. a large token count) never loses precision passing

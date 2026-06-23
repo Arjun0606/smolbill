@@ -2,7 +2,9 @@ package api
 
 import (
 	"crypto/subtle"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"strings"
 )
 
@@ -70,6 +72,14 @@ func rateKey(r *http.Request) string {
 // the ingest hot path.
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A panic in one handler must never take the billing server down. Recover,
+		// log with a stack, and return a clean 500.
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("panic in %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+				writeErr(w, http.StatusInternalServerError, "internal error")
+			}
+		}()
 		if strings.HasPrefix(r.URL.Path, "/v1/") && !s.authorized(r) {
 			writeErr(w, http.StatusUnauthorized, "missing or invalid API key")
 			return

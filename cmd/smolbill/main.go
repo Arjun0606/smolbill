@@ -9,12 +9,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -199,7 +202,40 @@ func runServe() error {
 	root.Handle("/", srv.Handler())
 
 	log.Printf("smolbill: listening on %s — /v1 + /mcp (dedup window %s)", addr, ingest.DefaultDedupWindow)
-	return http.ListenAndServe(addr, root)
+	return runServer(addr, root)
+}
+
+// runServer runs an HTTP server with production timeouts and graceful shutdown.
+// The timeouts stop a slow client from holding a connection open forever
+// (slowloris); the SIGINT/SIGTERM drain lets a deploy finish in-flight billing
+// requests instead of dropping them mid-charge.
+func runServer(addr string, h http.Handler) error {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	errc := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errc <- err
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	select {
+	case err := <-errc:
+		return err
+	case <-stop:
+		log.Printf("smolbill: shutting down, draining in-flight requests (20s)...")
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
 }
 
 // splitKeys parses a comma-separated SMOLBILL_API_KEYS value into trimmed keys.
@@ -267,7 +303,7 @@ func runMCP() error {
 			log.Printf("smolbill: MCP money operations are in PREVIEW mode (nothing moves). Set SMOLBILL_MCP_ARMED=true to enable.")
 		}
 		log.Printf("smolbill: MCP server ready on http://%s/mcp (Streamable HTTP)", addr)
-		return http.ListenAndServe(addr, mcp.APIKeyAuth(keys, srv.HTTPHandler()))
+		return runServer(addr, mcp.APIKeyAuth(keys, srv.HTTPHandler()))
 	}
 
 	log.Printf("smolbill: MCP server ready on stdio")
@@ -537,5 +573,5 @@ func runQuickstart() error {
 	fmt.Println()
 	log.Printf("smolbill: serving on %s — ctrl-c to stop", addr)
 
-	return http.ListenAndServe(addr, api.New(st, ing, nil).Handler())
+	return runServer(addr, api.New(st, ing, nil).Handler())
 }
