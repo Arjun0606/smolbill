@@ -13,6 +13,7 @@
     { "method": "POST", "path": "/v1/invoices/finalize",           "ts": "invoices.finalize",     "py": "invoices.finalize" },
     { "method": "GET",  "path": "/v1/reconcile/{invoice_id}",      "ts": "invoices.reconcile",    "py": "invoices.reconcile" },
     { "method": "GET",  "path": "/v1/invoices/{invoice_id}/verify","ts": "invoices.verify",       "py": "invoices.verify" },
+    { "method": "GET",  "path": "/v1/invoices/{invoice_id}/revenue","ts": "invoices.revenue",     "py": "invoices.revenue" },
     { "method": "POST", "path": "/v1/invoices/{invoice_id}/collect","ts": "invoices.collect",     "py": "invoices.collect" },
     { "method": "GET",  "path": "/v1/invoices/{invoice_id}/collection","ts": "invoices.collection","py": "invoices.collection" },
     { "method": "POST", "path": "/v1/dunning/run",                  "ts": "dunning.run",           "py": "dunning.run" },

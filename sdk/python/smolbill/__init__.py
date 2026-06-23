@@ -200,6 +200,13 @@ class _Invoices:
     def verify(self, invoice_id: str) -> dict[str, Any]:
         return self._c._verdict(f"/v1/invoices/{urllib.parse.quote(invoice_id)}/verify")
 
+    def revenue(self, invoice_id: str, as_of: str | None = None) -> dict[str, Any]:
+        """ASC 606 revenue recognition as of a date (default now): recognized vs deferred."""
+        path = f"/v1/invoices/{urllib.parse.quote(invoice_id)}/revenue"
+        if as_of:
+            path += f"?as_of={urllib.parse.quote(as_of)}"
+        return self._c._request("GET", path)
+
     def collect(self, invoice_id: str) -> Any:
         """Attempt collection of an unpaid invoice now (manual dunning trigger)."""
         return self._c._request("POST", f"/v1/invoices/{urllib.parse.quote(invoice_id)}/collect")

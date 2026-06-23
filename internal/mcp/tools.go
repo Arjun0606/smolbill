@@ -19,6 +19,7 @@ import (
 	"github.com/Arjun0606/smolbill/internal/invoice"
 	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
+	"github.com/Arjun0606/smolbill/internal/revrec"
 )
 
 // tool is one MCP tool: its advertised schema plus the handler that runs it.
@@ -151,6 +152,12 @@ func (s *Server) buildTools() []tool {
 			description: "Prove a finalized invoice still matches the live event log. Returns 'consistent' or the exact line-level drift if a late/out-of-order event changed the bill after finalize.",
 			inputSchema: obj(map[string]any{"invoice_id": str("invoice id")}, "invoice_id"),
 			handler:     s.reconcileInvoiceTool,
+		},
+		{
+			name:        "get_revenue_recognition",
+			description: "ASC 606 revenue recognition for a finalized invoice as of a date: how much is recognized revenue vs still deferred, straight-line over the service period. Optional as_of (RFC3339); defaults to now.",
+			inputSchema: obj(map[string]any{"invoice_id": str("invoice id"), "as_of": str("RFC3339 date; defaults to now")}, "invoice_id"),
+			handler:     s.revenueRecognitionTool,
 		},
 		{
 			name:        "get_analytics",
@@ -484,6 +491,38 @@ func (s *Server) getCollectionTool(_ context.Context, args json.RawMessage) (str
 		msg += fmt.Sprintf(", next retry due %s", col.NextAttemptAt.Format(time.RFC3339))
 	}
 	return msg + ".", nil
+}
+
+func (s *Server) revenueRecognitionTool(_ context.Context, args json.RawMessage) (string, error) {
+	var a struct {
+		InvoiceID string `json:"invoice_id"`
+		AsOf      string `json:"as_of"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return "", fmt.Errorf("invalid arguments: %w", err)
+	}
+	if a.InvoiceID == "" {
+		return "", fmt.Errorf("invoice_id is required")
+	}
+	inv, ok, err := s.store.GetInvoice(a.InvoiceID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("unknown invoice_id %q", a.InvoiceID)
+	}
+	asOf := s.now()
+	if a.AsOf != "" {
+		t, perr := time.Parse(time.RFC3339, a.AsOf)
+		if perr != nil {
+			return "", fmt.Errorf("as_of must be RFC3339")
+		}
+		asOf = t
+	}
+	r := revrec.Recognize(inv, asOf)
+	return fmt.Sprintf("Invoice %s revenue recognition (straight-line, as of %s): recognized %s %s and deferred %s %s of %s total. Service period %s → %s, fraction recognized %s.",
+		r.InvoiceID, asOf.Format(time.RFC3339), r.TotalRecognized, r.Currency, r.TotalDeferred, r.Currency, r.TotalAmount,
+		r.PeriodStart.Format("2006-01-02"), r.PeriodEnd.Format("2006-01-02"), r.Fraction), nil
 }
 
 func (s *Server) recordUsageTool(_ context.Context, args json.RawMessage) (string, error) {

@@ -362,6 +362,9 @@ export class Smolbill {
       this.verdict(`/v1/reconcile/${encodeURIComponent(invoiceId)}`),
     verify: (invoiceId: string) =>
       this.verdict(`/v1/invoices/${encodeURIComponent(invoiceId)}/verify`),
+    // ASC 606 revenue recognition as of a date (default now): recognized vs deferred.
+    revenue: (invoiceId: string, asOf?: string) =>
+      this.request<unknown>("GET", `/v1/invoices/${encodeURIComponent(invoiceId)}/revenue${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""}`),
     // Dunning: attempt collection now, or inspect the recovery state.
     collect: (invoiceId: string) =>
       this.request<Collection>("POST", `/v1/invoices/${encodeURIComponent(invoiceId)}/collect`),

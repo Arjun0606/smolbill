@@ -105,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/invoices/finalize", s.finalizeInvoice)
 	mux.HandleFunc("GET /v1/reconcile/{invoice_id}", s.reconcileInvoice)
 	mux.HandleFunc("GET /v1/invoices/{invoice_id}/verify", s.verifyInvoice)
+	mux.HandleFunc("GET /v1/invoices/{invoice_id}/revenue", s.revenueRecognition)
 	mux.HandleFunc("POST /v1/invoices/{invoice_id}/collect", s.collectInvoice)
 	mux.HandleFunc("GET /v1/invoices/{invoice_id}/collection", s.getCollection)
 	mux.HandleFunc("POST /v1/dunning/run", s.runDunning)

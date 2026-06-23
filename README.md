@@ -24,6 +24,7 @@ A single static binary (Postgres, or in-memory for zero-setup) that gives you:
 
 - **Provably-correct metering** — idempotent event ingest with a documented dedup window; late and out-of-order events re-rate correctly instead of silently being wrong.
 - **A reconciliation ledger** — `GET /v1/reconcile/{invoice}` recomputes the invoice from the live event log and tells you, line by line, if anything drifted (200 if consistent, 409 + a diff if not).
+- **Revenue recognition (ASC 606)** — `GET /v1/invoices/{invoice}/revenue?as_of=…` returns the recognized-vs-deferred split, straight-line over the service period, computed fresh from the invoice (never drifts). The thing teams leave other open-source billing tools for — here, free.
 - **A from-the-ground-up AI sandbox** — your agent (Claude/Cursor) configures billing by passing *intent* over MCP, and can **simulate a pricing change against your real usage** (`/v1/invoices/simulate`) before committing a thing. The deterministic engine does every cent; the model never touches the math.
 - **The Stripe rail, decoupled** — invoicing/charges only, behind a processor-agnostic interface. smolbill never holds funds or becomes a Merchant of Record, so a processor freeze can't take down your billing logic.
 - **A free embeddable customer portal + wallet** — the feature others charge ~$1,500/mo for, in the OSS core.

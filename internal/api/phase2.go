@@ -12,7 +12,34 @@ import (
 	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
+	"github.com/Arjun0606/smolbill/internal/revrec"
 )
+
+// revenueRecognition returns the ASC 606 straight-line recognition schedule for a
+// finalized invoice as of a date (?as_of=RFC3339, default now): how much of the
+// invoice is recognized revenue vs still deferred. Computed fresh from the stored
+// invoice, so it never drifts.
+func (s *Server) revenueRecognition(w http.ResponseWriter, r *http.Request) {
+	inv, ok, err := s.store.GetInvoice(r.PathValue("invoice_id"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "unknown invoice_id")
+		return
+	}
+	asOf := s.now()
+	if v := r.URL.Query().Get("as_of"); v != "" {
+		t, perr := time.Parse(time.RFC3339, v)
+		if perr != nil {
+			writeErr(w, http.StatusBadRequest, "as_of must be RFC3339")
+			return
+		}
+		asOf = t
+	}
+	writeJSON(w, http.StatusOK, revrec.Recognize(inv, asOf))
+}
 
 // --- POST /v1/invoices/finalize ---
 //
