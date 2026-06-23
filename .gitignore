@@ -8,3 +8,9 @@ gtm/
 
 # built binary (go build -o smolbill)
 /smolbill
+
+# secrets / local env — never commit
+.env
+.env.*
+*.pem
+*.key
