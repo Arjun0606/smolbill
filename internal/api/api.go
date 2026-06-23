@@ -38,6 +38,8 @@ type Server struct {
 	proc     payments.Processor // optional payment rail; nil => finalize is local-only
 	notifier alerts.Notifier    // spend-alert delivery
 	whSender webhook.Sender     // outbound lifecycle-event delivery
+	authKeys []string           // if non-empty, /v1 requires one of these API keys
+	limiter  *rateLimiter       // if non-nil, rate-limits POST /v1/events
 }
 
 // New builds a Server. A nil clock defaults to time.Now (UTC).
@@ -135,7 +137,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /pricing", s.pricing)
 	mux.HandleFunc("GET /upgrade", s.pricing)
 	mux.HandleFunc("GET /checkout", s.checkout)
-	return mux
+	return s.withMiddleware(mux)
 }
 
 // --- helpers ---

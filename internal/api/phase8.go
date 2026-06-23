@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
 )
+
+// errNoProcessor is returned by dunning when no payment rail is configured.
+var errNoProcessor = errors.New("no payment processor configured; dunning needs a rail")
 
 // --- dunning / failed-payment recovery (Phase 8) ---
 //
@@ -76,27 +80,40 @@ func (s *Server) runDunning(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "no payment processor configured; dunning needs a rail")
 		return
 	}
-	due, err := s.store.CollectionsDue(s.now())
+	processed, faults, summary, err := s.RunDueDunning(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	summary := map[string]int{}
-	var faults int
-	for _, col := range due {
-		updated, err := s.attemptCollection(r.Context(), col)
-		if err != nil {
-			faults++ // transport fault; state left unchanged, picked up next run
-			continue
-		}
-		summary[updated.Status]++
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"processed":  len(due),
+		"processed":  processed,
 		"faults":     faults,
 		"by_status":  summary,
 		"checked_at": s.now(),
 	})
+}
+
+// RunDueDunning processes every collection whose retry is due, once each. It's the
+// shared core behind POST /v1/dunning/run and the optional scheduler in serve.
+// Idempotent and safe to call on a cadence; a processor must be configured.
+func (s *Server) RunDueDunning(ctx context.Context) (processed, faults int, byStatus map[string]int, err error) {
+	if s.proc == nil {
+		return 0, 0, nil, errNoProcessor
+	}
+	due, err := s.store.CollectionsDue(s.now())
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	byStatus = map[string]int{}
+	for _, col := range due {
+		updated, aerr := s.attemptCollection(ctx, col)
+		if aerr != nil {
+			faults++ // transport fault; state left unchanged, picked up next run
+			continue
+		}
+		byStatus[updated.Status]++
+	}
+	return len(due), faults, byStatus, nil
 }
 
 // attemptCollection runs one charge attempt, folds the outcome through the pure

@@ -35,6 +35,9 @@ env vars (processor keys, `SMOLBILL_CLOUD_URL`) in the dashboard.
 |---|---|
 | `DATABASE_URL` | Postgres DSN. Unset → in-memory store (dev only, not persisted). |
 | `ADDR` | HTTP listen address (default `:8080`). |
+| `SMOLBILL_API_KEYS` | Comma-separated API keys. **Set this in production** — when present, every `/v1` request needs `Authorization: Bearer <key>` or `X-API-Key: <key>`. Unset → `/v1` is open (dev only). `/healthz`, the dashboard, and marketing pages stay open. |
+| `SMOLBILL_RATE_LIMIT` | Optional. Events/sec cap on `POST /v1/events`, per key (or IP). Unset → no limit. |
+| `SMOLBILL_DUNNING_INTERVAL` | Optional. Runs the failed-payment retry sweep on this cadence, e.g. `1h`. Needs a payment rail. Unset → no scheduler (trigger `POST /v1/dunning/run` yourself). |
 | `SMOLBILL_PROCESSOR` | Payment rail: `stripe\|dodo\|paddle\|lemonsqueezy\|polar\|creem\|razorpay\|crypto`. Unset → auto-detect from whichever provider creds are set. |
 | _provider creds_ | e.g. `STRIPE_SECRET_KEY`, `DODO_PAYMENTS_API_KEY`, `POLAR_ACCESS_TOKEN`, `CREEM_API_KEY`, … (see each adapter's `FromEnv`). |
 | `SMOLBILL_CLOUD_MODE` | Upgrade funnel: `waitlist` (default, pre-launch) or `live` (buy button). |

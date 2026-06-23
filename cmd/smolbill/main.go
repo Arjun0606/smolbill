@@ -13,6 +13,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -82,6 +84,9 @@ func usage() {
 	fmt.Println("  ADDR                HTTP listen address (default :8080)")
 	fmt.Println("  SMOLBILL_PROCESSOR  payment rail: stripe|dodo|paddle|lemonsqueezy|polar|creem|razorpay|crypto")
 	fmt.Println("                      (unset = auto-detect from whichever provider creds are set)")
+	fmt.Println("  SMOLBILL_API_KEYS   comma-separated keys; set this to require auth on /v1 (unset = open)")
+	fmt.Println("  SMOLBILL_RATE_LIMIT events/sec cap on POST /v1/events (optional)")
+	fmt.Println("  SMOLBILL_DUNNING_INTERVAL  run the retry sweep on a cadence, e.g. 1h (needs a rail)")
 }
 
 // openStore builds the store from DATABASE_URL (Postgres) or falls back to
@@ -126,6 +131,51 @@ func runServe() error {
 		log.Printf("smolbill: %s payment rail enabled", proc.Name())
 	} else {
 		log.Printf("smolbill: no payment rail configured — finalize is local-only (no processor push)")
+	}
+
+	// API-key auth on /v1. Off by default so dev stays zero-config; loudly warn if
+	// it's left open. Set SMOLBILL_API_KEYS=key1,key2 in production.
+	if keys := os.Getenv("SMOLBILL_API_KEYS"); keys != "" {
+		srv.SetAuthKeys(strings.Split(keys, ",")...)
+		log.Printf("smolbill: API-key auth enabled on /v1")
+	} else {
+		log.Printf("smolbill: SMOLBILL_API_KEYS unset — /v1 is OPEN. Set it before exposing this publicly.")
+	}
+
+	// Optional rate limit on the ingest hot path: SMOLBILL_RATE_LIMIT = events/sec.
+	if rl := os.Getenv("SMOLBILL_RATE_LIMIT"); rl != "" {
+		rps, perr := strconv.ParseFloat(rl, 64)
+		if perr != nil || rps <= 0 {
+			return fmt.Errorf("SMOLBILL_RATE_LIMIT must be a positive number (events/sec), got %q", rl)
+		}
+		srv.SetRateLimit(rps, int(rps*2)+1)
+		log.Printf("smolbill: rate limiting POST /v1/events at %g/s per key", rps)
+	}
+
+	// Optional dunning scheduler: SMOLBILL_DUNNING_INTERVAL (e.g. "1h") runs the
+	// due-collection sweep on a cadence. Needs a payment rail; off by default.
+	if iv := os.Getenv("SMOLBILL_DUNNING_INTERVAL"); iv != "" {
+		d, perr := time.ParseDuration(iv)
+		if perr != nil || d <= 0 {
+			return fmt.Errorf("SMOLBILL_DUNNING_INTERVAL must be a positive duration (e.g. 1h), got %q", iv)
+		}
+		if proc == nil {
+			log.Printf("smolbill: SMOLBILL_DUNNING_INTERVAL set but no payment rail — scheduler not started")
+		} else {
+			go func() {
+				t := time.NewTicker(d)
+				defer t.Stop()
+				for range t.C {
+					processed, faults, _, derr := srv.RunDueDunning(context.Background())
+					if derr != nil {
+						log.Printf("dunning scheduler: %v", derr)
+					} else if processed > 0 {
+						log.Printf("dunning scheduler: processed %d due collection(s), %d fault(s)", processed, faults)
+					}
+				}
+			}()
+			log.Printf("smolbill: dunning scheduler running every %s", d)
+		}
 	}
 
 	log.Printf("smolbill: listening on %s (dedup window %s)", addr, ingest.DefaultDedupWindow)
