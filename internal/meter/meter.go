@@ -5,8 +5,10 @@
 package meter
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -119,8 +121,21 @@ func propertyDecimal(e domain.Event, key string) (decimal.Decimal, error) {
 		return decimal.NewFromInt(int64(v)), nil
 	case int64:
 		return decimal.NewFromInt(v), nil
+	case json.Number:
+		// The request was decoded with UseNumber(), so the value arrived as its exact
+		// source text — large integers (token counts past 2^53) and decimals keep full
+		// precision, never passing through a float64. This is the float-free path.
+		d, err := decimal.NewFromString(v.String())
+		if err != nil {
+			return decimal.Zero, fmt.Errorf("event %q property %q: %q is not numeric", e.IdempotencyKey, key, v.String())
+		}
+		return d, nil
 	case float64:
-		return decimal.NewFromFloat(v), nil
+		// Backstop for any decoder that didn't use UseNumber(). Route through the
+		// shortest round-trip string instead of NewFromFloat so e.g. 0.1 stays exact.
+		// (Precision lost in the float64 itself can't be recovered here — every request
+		// path decodes with UseNumber so this is only a defensive fallback.)
+		return decimal.NewFromString(strconv.FormatFloat(v, 'f', -1, 64))
 	case string:
 		d, err := decimal.NewFromString(v)
 		if err != nil {

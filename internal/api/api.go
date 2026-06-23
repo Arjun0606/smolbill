@@ -151,6 +151,10 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 func decodeBody(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
+	// UseNumber keeps JSON numbers as exact json.Number text instead of float64, so a
+	// usage event's quantity (e.g. a large token count) never loses precision passing
+	// through a float. This is load-bearing for "no floats in money math, ever".
+	dec.UseNumber()
 	return dec.Decode(v)
 }
 

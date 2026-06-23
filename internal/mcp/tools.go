@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -493,7 +494,11 @@ func (s *Server) recordUsageTool(_ context.Context, args json.RawMessage) (strin
 		Properties     map[string]any `json:"properties"`
 		EventTime      string         `json:"event_time"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// UseNumber so a quantity in properties stays exact (json.Number) instead of
+	// becoming a float64 — same float-free guarantee as the REST ingest path.
+	dec := json.NewDecoder(bytes.NewReader(args))
+	dec.UseNumber()
+	if err := dec.Decode(&a); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 	if a.IdempotencyKey == "" || a.CustomerID == "" || a.MeterCode == "" {
