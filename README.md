@@ -1,5 +1,7 @@
 # smolbill
 
+[![license](https://img.shields.io/badge/engine-AGPLv3-F5A623)](LICENSE) [![sdks](https://img.shields.io/badge/SDKs-Apache--2.0-8E8E8E)](sdk/) [![go](https://img.shields.io/badge/Go-single%20binary-00ADD8)](cmd/smolbill) [![status](https://img.shields.io/badge/billing-provably%20correct-F5A623)](#what-it-does)
+
 **Open-source usage billing for AI apps and solo devs. Flat-priced, never a percent of your revenue.**
 
 A single Go binary + Postgres that meters usage, sends correct invoices, and can *prove* your meter and your invoice never silently disagree. Sits on top of Stripe (or any processor), never becomes a Merchant of Record. AGPLv3 engine + Apache-2.0 SDKs; commercial license available.
@@ -7,6 +9,12 @@ A single Go binary + Postgres that meters usage, sends correct invoices, and can
 > Stripe Billing takes 0.7% of your revenue. Lago, Orb, Metronome, and Zuora feel built for a 50-person finance team. **smolbill is for the rest of us** — meter usage, send a correct bill, no sales call, no cut of your money.
 
 > **The AI-native loop:** your agent sets the rule → deterministic code does the math → a reconciliation ledger proves it never drifted. The AI passes *intent* (`attach_plan`), never money (`calculate_and_charge` is forbidden) — a hallucinated decimal in billing ends a business relationship, so the AI never touches the math.
+
+<p align="center">
+  <img src="assets/demo.gif" alt="smolbill computes a real invoice, then proves the meter and the invoice agree with a hash" width="760">
+  <br>
+  <em>One command. It computes a real invoice, then <strong>proves</strong> the meter and the invoice agree — with a hash.</em>
+</p>
 
 ---
 
