@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,17 @@ import (
 
 // defaultBaseURL is Stripe's API root. Overridable for tests via WithBaseURL.
 const defaultBaseURL = "https://api.stripe.com"
+
+// FromEnv builds a Stripe processor from STRIPE_SECRET_KEY. The second return is
+// false (with no error) when the key is unset, so the provider registry can skip
+// Stripe and try the next rail. This is the registry contract every adapter shares.
+func FromEnv() (payments.Processor, bool, error) {
+	key := os.Getenv("STRIPE_SECRET_KEY")
+	if key == "" {
+		return nil, false, nil
+	}
+	return New(key), true, nil
+}
 
 // Client is a minimal Stripe API client.
 type Client struct {
