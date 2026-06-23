@@ -3,14 +3,75 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Arjun0606/smolbill/internal/comms"
 	"github.com/Arjun0606/smolbill/internal/domain"
 	"github.com/Arjun0606/smolbill/internal/dunning"
 	"github.com/Arjun0606/smolbill/internal/engine"
+	"github.com/Arjun0606/smolbill/internal/payments"
 )
+
+// processorWebhook handles an inbound webhook from the configured payment rail.
+// Mounted OUTSIDE /v1 because it carries no API key — the signature is the auth —
+// and it isn't part of the SDK surface. On a verified success/failure it advances
+// the matching collection through the SAME dunning state machine as an off-session
+// retry, so a webhook-driven recovery and a pull-driven one can never disagree.
+func (s *Server) processorWebhook(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("processor")
+	if s.proc == nil || !strings.EqualFold(s.proc.Name(), name) {
+		writeErr(w, http.StatusBadRequest, "no matching payment processor is configured")
+		return
+	}
+	verifier, ok := s.proc.(payments.InboundWebhooker)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "this processor does not support inbound webhooks")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBody))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "read error")
+		return
+	}
+	ev, err := verifier.VerifyWebhook(r.Header, body)
+	if err != nil {
+		// A bad signature is a 400 — never act on an unverified event.
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.applyProcessorEvent(ev)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// applyProcessorEvent advances the collection for ev.InvoiceID. Unknown/ignored
+// events, missing collections, and already-terminal collections are no-ops — we
+// still return 200 so the processor doesn't retry the delivery forever.
+func (s *Server) applyProcessorEvent(ev payments.ProcessorEvent) {
+	if ev.Kind == "ignored" || ev.InvoiceID == "" {
+		return
+	}
+	col, ok, err := s.store.GetCollection(ev.InvoiceID)
+	if err != nil || !ok || dunning.Status(col.Status).Terminal() {
+		return
+	}
+	now := s.now()
+	prev := dunning.Status(col.Status)
+	if ev.Kind == "action_required" {
+		col.Status = string(dunning.RequiresAction)
+		col.NextAttemptAt = nil
+		col.UpdatedAt = now
+	} else {
+		next := toState(col).RecordAttempt(ev.Kind == "paid", ev.Reason, dunning.DefaultSchedule, now)
+		col = applyState(col, next, now)
+	}
+	if err := s.store.PutCollection(col); err != nil {
+		return
+	}
+	s.emitCollectionEvent(prev, col)
+}
 
 // errNoProcessor is returned by dunning when no payment rail is configured.
 var errNoProcessor = errors.New("no payment processor configured; dunning needs a rail")

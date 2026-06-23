@@ -8,6 +8,10 @@ package stripe
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,14 +37,15 @@ func FromEnv() (payments.Processor, bool, error) {
 	if key == "" {
 		return nil, false, nil
 	}
-	return New(key), true, nil
+	return New(key, WithWebhookSecret(os.Getenv("STRIPE_WEBHOOK_SECRET"))), true, nil
 }
 
 // Client is a minimal Stripe API client.
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	apiKey        string
+	baseURL       string
+	webhookSecret string
+	http          *http.Client
 }
 
 // Option configures a Client.
@@ -51,6 +56,10 @@ func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = strings
 
 // WithHTTPClient injects a custom http.Client (timeouts, transport).
 func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
+
+// WithWebhookSecret sets the signing secret (whsec_...) used to verify inbound
+// webhooks. Without it, VerifyWebhook rejects everything.
+func WithWebhookSecret(s string) Option { return func(c *Client) { c.webhookSecret = s } }
 
 // New builds a Stripe client. apiKey is the secret key (sk_...).
 func New(apiKey string, opts ...Option) *Client {
@@ -67,6 +76,86 @@ func New(apiKey string, opts ...Option) *Client {
 
 // Name implements payments.Processor.
 func (c *Client) Name() string { return "stripe" }
+
+// VerifyWebhook implements payments.InboundWebhooker using Stripe's documented
+// signing scheme: the `Stripe-Signature` header carries `t=<timestamp>,v1=<sig>`,
+// where sig = HMAC-SHA256(`<t>.<body>`, webhook_secret) in hex. We recompute and
+// constant-time compare, then normalize the event to what smolbill's dunning cares
+// about. A request that doesn't verify is rejected — the signature is the auth.
+func (c *Client) VerifyWebhook(header http.Header, body []byte) (payments.ProcessorEvent, error) {
+	if c.webhookSecret == "" {
+		return payments.ProcessorEvent{}, fmt.Errorf("stripe: no webhook secret configured (set STRIPE_WEBHOOK_SECRET)")
+	}
+	sigHeader := header.Get("Stripe-Signature")
+	var ts string
+	for _, part := range strings.Split(sigHeader, ",") {
+		if kv := strings.SplitN(strings.TrimSpace(part), "=", 2); len(kv) == 2 && kv[0] == "t" {
+			ts = kv[1]
+		}
+	}
+	if ts == "" {
+		return payments.ProcessorEvent{}, fmt.Errorf("stripe: malformed Stripe-Signature header")
+	}
+	mac := hmac.New(sha256.New, []byte(c.webhookSecret))
+	mac.Write([]byte(ts + "." + string(body)))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	// Stripe may send several v1 signatures (during secret rotation); accept any match.
+	verified := false
+	for _, part := range strings.Split(sigHeader, ",") {
+		if kv := strings.SplitN(strings.TrimSpace(part), "=", 2); len(kv) == 2 && kv[0] == "v1" &&
+			subtle.ConstantTimeCompare([]byte(kv[1]), []byte(expected)) == 1 {
+			verified = true
+			break
+		}
+	}
+	if !verified {
+		return payments.ProcessorEvent{}, fmt.Errorf("stripe: webhook signature verification failed")
+	}
+
+	var evt struct {
+		Type string `json:"type"`
+		Data struct {
+			Object struct {
+				Metadata         map[string]string `json:"metadata"`
+				FailureCode      string            `json:"failure_code"`
+				FailureMessage   string            `json:"failure_message"`
+				LastPaymentError *struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"last_payment_error"`
+			} `json:"object"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &evt); err != nil {
+		return payments.ProcessorEvent{}, fmt.Errorf("stripe: bad webhook body: %w", err)
+	}
+
+	ev := payments.ProcessorEvent{InvoiceID: evt.Data.Object.Metadata["smolbill_invoice_id"]}
+	switch evt.Type {
+	case "invoice.payment_succeeded", "invoice.paid", "payment_intent.succeeded", "charge.succeeded":
+		ev.Kind = "paid"
+	case "invoice.payment_failed", "payment_intent.payment_failed", "charge.failed":
+		ev.Kind = "failed"
+		ev.Reason = firstNonEmpty(evt.Data.Object.FailureCode, evt.Data.Object.FailureMessage)
+		if ev.Reason == "" && evt.Data.Object.LastPaymentError != nil {
+			ev.Reason = firstNonEmpty(evt.Data.Object.LastPaymentError.Code, evt.Data.Object.LastPaymentError.Message)
+		}
+	case "invoice.payment_action_required", "payment_intent.requires_action":
+		ev.Kind = "action_required"
+	default:
+		ev.Kind = "ignored"
+	}
+	return ev, nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // PushInvoice creates a Stripe customer (idempotently), an invoice item per
 // smolbill line, then an invoice, and finalizes it. Every call carries an

@@ -7,9 +7,32 @@ package payments
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/Arjun0606/smolbill/internal/domain"
 )
+
+// ProcessorEvent is a normalized inbound webhook from a payment rail, telling
+// smolbill what actually happened to a charge it pushed. Real-world card
+// collection is asynchronous (a charge can succeed, fail, or need authentication
+// after the API call returns), so this is how the engine learns the true outcome.
+type ProcessorEvent struct {
+	// Kind: "paid" | "failed" | "action_required" | "ignored" (an event we don't act on).
+	Kind string
+	// InvoiceID is the smolbill invoice id (carried in the processor's metadata),
+	// used to find the collection this event belongs to.
+	InvoiceID string
+	// Reason is the decline reason when Kind == "failed".
+	Reason string
+}
+
+// InboundWebhooker is implemented by rails that can verify and parse their own
+// inbound webhooks. It's optional: merchant-of-record rails manage collection
+// themselves. VerifyWebhook MUST reject a request whose signature doesn't
+// validate — the signature is the only authentication an inbound webhook carries.
+type InboundWebhooker interface {
+	VerifyWebhook(header http.Header, body []byte) (ProcessorEvent, error)
+}
 
 // PushRequest is a finalized smolbill invoice handed to a processor.
 type PushRequest struct {

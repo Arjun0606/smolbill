@@ -97,6 +97,9 @@ func subscribedTo(h domain.Webhook, eventType string) bool {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	// Inbound payment-rail webhooks. Outside /v1 (no API key — the signature is the
+	// auth) and not part of the SDK surface.
+	mux.HandleFunc("POST /integrations/{processor}/webhook", s.processorWebhook)
 	mux.HandleFunc("POST /v1/customers", s.createCustomer)
 	mux.HandleFunc("POST /v1/meters", s.createMeter)
 	mux.HandleFunc("POST /v1/plans", s.createPlan)
