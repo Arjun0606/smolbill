@@ -294,6 +294,9 @@ func TestFullLifecycleByAI(t *testing.T) {
 	if isErr || !strings.Contains(finText, "$3.00") {
 		t.Fatalf("finalize_invoice = %q (isErr=%v)", finText, isErr)
 	}
+	if !strings.Contains(finText, "INV-") {
+		t.Fatalf("finalize should assign a human-readable invoice number: %q", finText)
+	}
 	invID := extractID(t, finText, "invoice ")
 
 	if rec, isErr := s.callTool("reconcile_invoice", map[string]any{"invoice_id": invID}); isErr || !strings.Contains(rec, "reconciles") {

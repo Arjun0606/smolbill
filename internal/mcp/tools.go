@@ -402,12 +402,15 @@ func (s *Server) finalizeInvoiceTool(_ context.Context, args json.RawMessage) (s
 	inv := res.Invoice
 	inv.ID = id.New("inv")
 	inv.Status = "finalized"
+	if num, nerr := s.store.NextInvoiceNumber(); nerr == nil {
+		inv.Number = num
+	}
 	ledger := reconcile.LedgerFromResult(inv.ID, res)
 	if err := s.store.SaveFinalizedInvoice(inv, ledger); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Finalized invoice %s for customer %s: $%s %s (period %s → %s). Reconciliation ledger persisted — call reconcile_invoice any time. No money pushed (finalize over MCP is local).",
-		inv.ID, inv.CustomerID, inv.Total.StringFixed(2), inv.Currency,
+	return fmt.Sprintf("Finalized invoice %s (%s) for customer %s: $%s %s (period %s → %s). Reconciliation ledger persisted — call reconcile_invoice any time. No money pushed (finalize over MCP is local).",
+		inv.ID, inv.Number, inv.CustomerID, inv.Total.StringFixed(2), inv.Currency,
 		inv.PeriodStart.Format("2006-01-02"), inv.PeriodEnd.Format("2006-01-02")), nil
 }
 

@@ -34,6 +34,15 @@ type Store struct {
 	webhooks     map[string]domain.Webhook             // keyed by id
 	collections  map[string]domain.Collection          // invoice_id -> dunning state
 	templates    map[string]domain.MessageTemplate     // dunning event -> template override
+	invoiceSeq   int64                                 // monotonic counter for invoice numbers
+}
+
+// NextInvoiceNumber returns the next sequential invoice number, e.g. INV-000042.
+func (s *Store) NextInvoiceNumber() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.invoiceSeq++
+	return fmt.Sprintf("INV-%06d", s.invoiceSeq), nil
 }
 
 // New returns an empty store.

@@ -374,10 +374,10 @@ func (s *Store) SaveFinalizedInvoice(inv domain.Invoice, ledger []domain.LedgerR
 	defer tx.Rollback(s.ctx)
 
 	if _, err := tx.Exec(s.ctx,
-		`INSERT INTO invoices (id, customer_id, subscription_id, period_start, period_end, status, stripe_invoice_id, total, currency)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9)`,
+		`INSERT INTO invoices (id, customer_id, subscription_id, period_start, period_end, status, stripe_invoice_id, total, currency, invoice_number)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9,$10)`,
 		inv.ID, inv.CustomerID, inv.SubscriptionID, inv.PeriodStart, inv.PeriodEnd,
-		inv.Status, nullStr(inv.StripeInvoiceID), inv.Total.String(), inv.Currency,
+		inv.Status, nullStr(inv.StripeInvoiceID), inv.Total.String(), inv.Currency, nullStr(inv.Number),
 	); err != nil {
 		return fmt.Errorf("postgres: insert invoice: %w", err)
 	}
@@ -422,12 +422,13 @@ func (s *Store) SaveFinalizedInvoice(inv domain.Invoice, ledger []domain.LedgerR
 func (s *Store) GetInvoice(invID string) (domain.Invoice, bool, error) {
 	var inv domain.Invoice
 	var stripeID *string
+	var number *string
 	var total *string
 	err := s.pool.QueryRow(s.ctx,
-		`SELECT id, customer_id, subscription_id, period_start, period_end, status, stripe_invoice_id, total::text, currency
+		`SELECT id, customer_id, subscription_id, period_start, period_end, status, stripe_invoice_id, total::text, currency, invoice_number
 		 FROM invoices WHERE id = $1`, invID,
 	).Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd,
-		&inv.Status, &stripeID, &total, &inv.Currency)
+		&inv.Status, &stripeID, &total, &inv.Currency, &number)
 	if err == pgx.ErrNoRows {
 		return domain.Invoice{}, false, nil
 	}
@@ -435,6 +436,7 @@ func (s *Store) GetInvoice(invID string) (domain.Invoice, bool, error) {
 		return domain.Invoice{}, false, fmt.Errorf("postgres: GetInvoice: %w", err)
 	}
 	inv.StripeInvoiceID = derefStr(stripeID)
+	inv.Number = derefStr(number)
 	inv.Total = parseDec(total)
 
 	rows, err := s.pool.Query(s.ctx,
@@ -862,7 +864,7 @@ func (s *Store) ListCustomers() ([]domain.Customer, error) {
 
 func (s *Store) InvoicesForCustomer(customerID string) ([]domain.Invoice, error) {
 	rows, err := s.pool.Query(s.ctx,
-		`SELECT id, customer_id, subscription_id, period_start, period_end, status, total::text, currency
+		`SELECT id, customer_id, subscription_id, period_start, period_end, status, total::text, currency, invoice_number
 		 FROM invoices WHERE customer_id = $1 ORDER BY period_start DESC`, customerID)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: InvoicesForCustomer: %w", err)
@@ -871,11 +873,12 @@ func (s *Store) InvoicesForCustomer(customerID string) ([]domain.Invoice, error)
 	var out []domain.Invoice
 	for rows.Next() {
 		var inv domain.Invoice
-		var total *string
-		if err := rows.Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd, &inv.Status, &total, &inv.Currency); err != nil {
+		var total, number *string
+		if err := rows.Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd, &inv.Status, &total, &inv.Currency, &number); err != nil {
 			return nil, fmt.Errorf("postgres: scan invoice: %w", err)
 		}
 		inv.Total = parseDec(total)
+		inv.Number = derefStr(number)
 		out = append(out, inv)
 	}
 	return out, rows.Err()
@@ -966,7 +969,7 @@ func (s *Store) ListSubscriptions() ([]domain.Subscription, error) {
 
 func (s *Store) ListInvoices() ([]domain.Invoice, error) {
 	rows, err := s.pool.Query(s.ctx,
-		`SELECT id, customer_id, subscription_id, period_start, period_end, status, total::text, currency
+		`SELECT id, customer_id, subscription_id, period_start, period_end, status, total::text, currency, invoice_number
 		 FROM invoices ORDER BY period_start DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: ListInvoices: %w", err)
@@ -975,14 +978,24 @@ func (s *Store) ListInvoices() ([]domain.Invoice, error) {
 	out := make([]domain.Invoice, 0)
 	for rows.Next() {
 		var inv domain.Invoice
-		var total *string
-		if err := rows.Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd, &inv.Status, &total, &inv.Currency); err != nil {
+		var total, number *string
+		if err := rows.Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd, &inv.Status, &total, &inv.Currency, &number); err != nil {
 			return nil, fmt.Errorf("postgres: scan invoice: %w", err)
 		}
 		inv.Total = parseDec(total)
+		inv.Number = derefStr(number)
 		out = append(out, inv)
 	}
 	return out, rows.Err()
+}
+
+// NextInvoiceNumber draws from a Postgres sequence (atomic, gap-tolerant).
+func (s *Store) NextInvoiceNumber() (string, error) {
+	var n int64
+	if err := s.pool.QueryRow(s.ctx, `SELECT nextval('invoice_number_seq')`).Scan(&n); err != nil {
+		return "", fmt.Errorf("postgres: NextInvoiceNumber: %w", err)
+	}
+	return fmt.Sprintf("INV-%06d", n), nil
 }
 
 // --- helpers ---

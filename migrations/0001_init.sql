@@ -102,8 +102,14 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Human-readable, monotonic invoice numbers (INV-000042). A sequence keeps numbering
+-- atomic under concurrent finalize; gaps are acceptable (a number is spent even if its
+-- finalize fails), ordering is what matters.
+CREATE SEQUENCE IF NOT EXISTS invoice_number_seq;
+
 CREATE TABLE IF NOT EXISTS invoices (
     id                TEXT PRIMARY KEY,
+    invoice_number    TEXT,
     customer_id       TEXT NOT NULL REFERENCES customers(id),
     subscription_id   TEXT NOT NULL REFERENCES subscriptions(id),
     period_start      TIMESTAMPTZ NOT NULL,

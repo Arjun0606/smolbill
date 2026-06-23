@@ -48,6 +48,10 @@ type Store interface {
 	// reconciliation ledger rows atomically. Ledger rows with empty IDs are
 	// assigned one. This is the write side of `/invoices/finalize`.
 	SaveFinalizedInvoice(inv domain.Invoice, ledger []domain.LedgerRow) error
+	// NextInvoiceNumber returns the next human-readable sequential invoice number
+	// (e.g. INV-000042), monotonic and unique. Gaps are allowed (a number is spent
+	// even if the finalize that follows it fails); ordering is what matters.
+	NextInvoiceNumber() (string, error)
 	// GetInvoice returns a stored invoice with its lines.
 	GetInvoice(id string) (domain.Invoice, bool, error)
 	// GetLedger returns the reconciliation ledger rows for an invoice.

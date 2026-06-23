@@ -77,6 +77,9 @@ func (s *Server) finalizeInvoice(w http.ResponseWriter, r *http.Request) {
 	inv := res.Invoice
 	inv.ID = id.New("inv")
 	inv.Status = "finalized"
+	if num, nerr := s.store.NextInvoiceNumber(); nerr == nil {
+		inv.Number = num
+	}
 
 	// If a payment rail is configured, push to it BEFORE persisting so we never
 	// record a finalized invoice the processor doesn't have. The push is

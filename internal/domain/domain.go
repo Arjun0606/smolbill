@@ -131,6 +131,7 @@ type Subscription struct {
 // Invoice is a finalized bill for one period.
 type Invoice struct {
 	ID              string          `json:"id"`
+	Number          string          `json:"number"` // human-readable sequential, e.g. INV-000042
 	CustomerID      string          `json:"customer_id"`
 	SubscriptionID  string          `json:"subscription_id"`
 	PeriodStart     time.Time       `json:"period_start"`
