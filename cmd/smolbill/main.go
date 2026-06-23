@@ -133,13 +133,14 @@ func runServe() error {
 		log.Printf("smolbill: no payment rail configured — finalize is local-only (no processor push)")
 	}
 
-	// API-key auth on /v1. Off by default so dev stays zero-config; loudly warn if
-	// it's left open. Set SMOLBILL_API_KEYS=key1,key2 in production.
-	if keys := os.Getenv("SMOLBILL_API_KEYS"); keys != "" {
-		srv.SetAuthKeys(strings.Split(keys, ",")...)
-		log.Printf("smolbill: API-key auth enabled on /v1")
+	// API-key auth on /v1 (and /mcp below). Off by default so dev stays zero-config;
+	// loudly warn if it's left open. Set SMOLBILL_API_KEYS=key1,key2 in production.
+	keys := splitKeys(os.Getenv("SMOLBILL_API_KEYS"))
+	if len(keys) > 0 {
+		srv.SetAuthKeys(keys...)
+		log.Printf("smolbill: API-key auth enabled on /v1 and /mcp")
 	} else {
-		log.Printf("smolbill: SMOLBILL_API_KEYS unset — /v1 is OPEN. Set it before exposing this publicly.")
+		log.Printf("smolbill: SMOLBILL_API_KEYS unset — /v1 and /mcp are OPEN. Set it before exposing this publicly.")
 	}
 
 	// Optional rate limit on the ingest hot path: SMOLBILL_RATE_LIMIT = events/sec.
@@ -178,8 +179,47 @@ func runServe() error {
 		}
 	}
 
-	log.Printf("smolbill: listening on %s (dedup window %s)", addr, ingest.DefaultDedupWindow)
-	return http.ListenAndServe(addr, srv.Handler())
+	// Mount the MCP server in the SAME process/port as /v1, so a provisioned engine
+	// serves the dashboard API AND the agent surface at {url}/mcp — gated by the
+	// same API keys. The agent surface is the product's USP, so it ships by default.
+	mcpSrv := mcp.New(st, ingest.New(st, 0), nil)
+	if proc != nil {
+		mcpSrv.SetProcessor(proc)
+	}
+	armed := os.Getenv("SMOLBILL_MCP_ARMED") == "true"
+	mcpSrv.SetSafety(armed, parseDecOr0(os.Getenv("SMOLBILL_MCP_MAX_CHARGE")))
+	if armed {
+		log.Printf("smolbill: MCP is ARMED for live money operations (collect/dunning/topup execute). Cap: %q", os.Getenv("SMOLBILL_MCP_MAX_CHARGE"))
+	} else {
+		log.Printf("smolbill: MCP money operations are in PREVIEW mode (nothing moves). Set SMOLBILL_MCP_ARMED=true to enable.")
+	}
+
+	root := http.NewServeMux()
+	root.Handle("/mcp", mcp.APIKeyAuth(keys, mcpSrv.HTTPHandler()))
+	root.Handle("/", srv.Handler())
+
+	log.Printf("smolbill: listening on %s — /v1 + /mcp (dedup window %s)", addr, ingest.DefaultDedupWindow)
+	return http.ListenAndServe(addr, root)
+}
+
+// splitKeys parses a comma-separated SMOLBILL_API_KEYS value into trimmed keys.
+func splitKeys(v string) []string {
+	var out []string
+	for _, k := range strings.Split(v, ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// parseDecOr0 parses a decimal string, returning zero on empty/invalid input.
+func parseDecOr0(s string) decimal.Decimal {
+	d, err := decimal.NewFromString(strings.TrimSpace(s))
+	if err != nil {
+		return decimal.Zero
+	}
+	return d
 }
 
 // runMCP serves the intent-only MCP tool surface. Default transport is stdio (for
@@ -210,14 +250,24 @@ func runMCP() error {
 	if proc != nil {
 		srv.SetProcessor(proc)
 	}
+	armed := os.Getenv("SMOLBILL_MCP_ARMED") == "true"
+	srv.SetSafety(armed, parseDecOr0(os.Getenv("SMOLBILL_MCP_MAX_CHARGE")))
 
 	if httpMode {
 		addr := os.Getenv("ADDR")
 		if addr == "" {
 			addr = ":8080"
 		}
+		// Same API-key gate as serve — a remote MCP endpoint must not be open.
+		keys := splitKeys(os.Getenv("SMOLBILL_API_KEYS"))
+		if len(keys) == 0 {
+			log.Printf("smolbill: SMOLBILL_API_KEYS unset — /mcp is OPEN. Set it before exposing this publicly.")
+		}
+		if !armed {
+			log.Printf("smolbill: MCP money operations are in PREVIEW mode (nothing moves). Set SMOLBILL_MCP_ARMED=true to enable.")
+		}
 		log.Printf("smolbill: MCP server ready on http://%s/mcp (Streamable HTTP)", addr)
-		return http.ListenAndServe(addr, srv.HTTPHandler())
+		return http.ListenAndServe(addr, mcp.APIKeyAuth(keys, srv.HTTPHandler()))
 	}
 
 	log.Printf("smolbill: MCP server ready on stdio")

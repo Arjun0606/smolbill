@@ -338,6 +338,7 @@ func TestEntitlementsAndWalletByAI(t *testing.T) {
 		t.Fatalf("expected OVER LIMIT: %q", chk)
 	}
 
+	s.srv.SetSafety(true, decimal.Zero) // arm so the wallet credit actually executes
 	if _, isErr := s.callTool("topup_wallet", map[string]any{"customer_id": custID, "amount": "20.00", "currency": "USD"}); isErr {
 		t.Fatal("topup_wallet errored")
 	}
@@ -353,6 +354,7 @@ func TestDunningToolsByAI(t *testing.T) {
 	s, _ := newSession(t)
 	proc := fake.New()
 	s.srv.SetProcessor(proc)
+	s.srv.SetSafety(true, decimal.Zero) // arm so collection/dunning actually charge
 
 	// Register an invoice with the fake (as a finalize+push would) and open a
 	// collection against it.

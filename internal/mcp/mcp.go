@@ -25,8 +25,10 @@ import (
 	"time"
 
 	"github.com/Arjun0606/smolbill/internal/ingest"
+	"github.com/Arjun0606/smolbill/internal/money"
 	"github.com/Arjun0606/smolbill/internal/payments"
 	"github.com/Arjun0606/smolbill/internal/store"
+	"github.com/shopspring/decimal"
 )
 
 // defaultProtocolVersion is the MCP revision we advertise when a client does not
@@ -53,7 +55,12 @@ THE ENGINE OWNS THE MATH — YOU NEVER DO
 
 SHOW CONSEQUENCES BEFORE COMMITTING
 - preview_invoice and simulate_plan_change move nothing and persist nothing. Use them to show the user the exact outcome first — especially simulate_plan_change before any pricing change (it replays the customer's REAL usage against the proposed plan and diffs it against their live bill).
-- finalize_invoice, collect_invoice, topup_wallet, set_dunning_template and the create_* tools change real state. Confirm the specifics (amount, customer, plan) with the user before calling them. State plainly what each call did afterward.
+- finalize_invoice, set_dunning_template and the create_* tools change real state. Confirm the specifics (amount, customer, plan) with the user before calling them. State plainly what each call did afterward.
+
+MONEY GUARDRAIL (the tools that move real money are armed, not free)
+- collect_invoice, run_dunning, and topup_wallet move real money. The engine has two modes. When it is NOT armed (the default), these tools return a PREVIEW and move nothing — relay that honestly; never imply money moved. When it IS armed, they execute, within an optional per-operation cap. The tool result states which happened; report it verbatim.
+- You cannot arm the engine — only the operator can (an env setting). If the user asks you to actually charge and you get a PREVIEW back, tell them it's in preview mode and that they (the operator) must arm the engine; do not pretend it went through.
+- Always confirm the customer + amount with the user before calling a money tool, even in preview.
 
 CORRECTNESS IS THE PRODUCT — LEAD WITH IT
 - To answer "is this bill right?", call reconcile_invoice (matches the stored invoice against a fresh recompute from the raw events; returns "consistent" or the exact line-level drift) or verify_invoice (checks it against what the payment processor actually billed). Surface the verdict and the verification hash; that proof is the whole point.
@@ -84,11 +91,13 @@ func negotiateVersion(requested string) string {
 
 // Server serves the MCP tool surface over a single stdio connection.
 type Server struct {
-	store store.Store
-	ing   *ingest.Ingester
-	now   func() time.Time
-	proc  payments.Processor // optional rail; enables verify/collect/dunning tools
-	tools []tool
+	store     store.Store
+	ing       *ingest.Ingester
+	now       func() time.Time
+	proc      payments.Processor // optional rail; enables verify/collect/dunning tools
+	tools     []tool
+	armed     bool            // when false, money-moving tools return a preview only
+	maxCharge decimal.Decimal // per-operation cap when armed (zero = no cap)
 }
 
 // New builds an MCP server over the given store. A nil clock defaults to UTC now.
@@ -104,6 +113,37 @@ func New(st store.Store, ing *ingest.Ingester, clock func() time.Time) *Server {
 // SetProcessor attaches a payment rail so the agent can verify invoices against
 // the processor and run dunning. Without it, those tools return a clear error.
 func (s *Server) SetProcessor(p payments.Processor) { s.proc = p }
+
+// SetSafety configures the money-movement guardrails (the Cabbge-style "armed"
+// model). When armed is false (the default), the tools that move REAL money —
+// collect_invoice, run_dunning, topup_wallet — return a PREVIEW and move nothing.
+// Arming is set by the OPERATOR via env (SMOLBILL_MCP_ARMED), never by the agent,
+// so a prompt-injected or mistaken agent can never push money on its own. Reads
+// and configuration are always available. maxCharge (>0) caps any single armed
+// money operation as a second backstop.
+func (s *Server) SetSafety(armed bool, maxCharge decimal.Decimal) {
+	s.armed = armed
+	s.maxCharge = maxCharge
+}
+
+// preview returns the message a money-moving tool should hand back when the engine
+// is not armed: an honest dry-run that states plainly nothing moved and that only
+// the operator (not the agent) can enable live money operations.
+func (s *Server) preview(what string) string {
+	return "PREVIEW — engine is NOT armed for live money operations, so nothing moved.\n" + what +
+		"\nTo execute for real, the operator sets SMOLBILL_MCP_ARMED=true on this engine. The agent cannot arm itself."
+}
+
+// overCap reports whether an armed money operation exceeds the per-operation cap.
+func (s *Server) overCap(amt decimal.Decimal) bool {
+	return s.maxCharge.IsPositive() && amt.GreaterThan(s.maxCharge)
+}
+
+// capMsg formats the refusal when an amount exceeds the cap.
+func (s *Server) capMsg(amt decimal.Decimal, currency string) string {
+	return fmt.Sprintf("Refused: %s exceeds the per-operation cap of %s. Raise SMOLBILL_MCP_MAX_CHARGE on the engine or do this one manually.",
+		money.Format(amt, currency), money.Format(s.maxCharge, currency))
+}
 
 // --- JSON-RPC envelope ---
 

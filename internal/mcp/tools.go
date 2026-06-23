@@ -781,6 +781,13 @@ func (s *Server) topupWalletTool(_ context.Context, args json.RawMessage) (strin
 	if currency == "" {
 		currency = "USD"
 	}
+	// Crediting a wallet is a real financial state change — gate it behind arming.
+	if !s.armed {
+		return s.preview(fmt.Sprintf("Would credit %s %s to customer %s.", money.Format(amt, currency), currency, a.CustomerID)), nil
+	}
+	if s.overCap(amt) {
+		return s.capMsg(amt, currency), nil
+	}
 	w, err := s.store.TopUpWallet(a.CustomerID, amt, currency, a.Reason, a.IdempotencyKey)
 	if err != nil {
 		return "", err
@@ -857,6 +864,18 @@ func (s *Server) collectInvoiceTool(ctx context.Context, args json.RawMessage) (
 	if dunning.Status(col.Status).Terminal() {
 		return fmt.Sprintf("Collection for %s is already %s — nothing to do.", invID, col.Status), nil
 	}
+	// Collection asks the processor to charge a card — gate it behind arming.
+	if inv, ok, _ := s.store.GetInvoice(invID); ok {
+		if !s.armed {
+			return s.preview(fmt.Sprintf("Would attempt to collect invoice %s (total %s %s) via the %s rail.",
+				invID, money.Format(inv.Total, inv.Currency), inv.Currency, s.proc.Name())), nil
+		}
+		if s.overCap(inv.Total) {
+			return s.capMsg(inv.Total, inv.Currency), nil
+		}
+	} else if !s.armed {
+		return s.preview(fmt.Sprintf("Would attempt to collect invoice %s via the %s rail.", invID, s.proc.Name())), nil
+	}
 	col, err = s.attemptCollectionMCP(ctx, col)
 	if err != nil {
 		return "", err
@@ -878,6 +897,10 @@ func (s *Server) runDunningTool(ctx context.Context, _ json.RawMessage) (string,
 	}
 	if len(due) == 0 {
 		return "No collections are due. Nothing to run.", nil
+	}
+	// run_dunning attempts real charges across every due collection — gate it.
+	if !s.armed {
+		return s.preview(fmt.Sprintf("Would attempt charges on %d due collection(s) via the %s rail.", len(due), s.proc.Name())), nil
 	}
 	counts := map[string]int{}
 	var faults int
