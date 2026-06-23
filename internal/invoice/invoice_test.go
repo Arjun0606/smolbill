@@ -60,6 +60,40 @@ func TestFlatPlusUsageFullPeriod(t *testing.T) {
 	}
 }
 
+func TestTaxLine(t *testing.T) {
+	plan := domain.Plan{ID: "plan_1", Version: 1, Prices: []domain.Price{
+		{ID: "p_base", Model: domain.ModelFlat, Currency: "USD", FlatAmount: d("100.00")},
+	}}
+	// 8.25% tax on a $100 flat fee → $8.25 tax line, total $108.25.
+	res, err := Calculate(sub(plan, periodStart), plan, tokensMeter(), nil, d("8.25"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Invoice.Total.Equal(d("108.25")) {
+		t.Fatalf("total = %s, want 108.25", res.Invoice.Total)
+	}
+	var tax *domain.InvoiceLine
+	for i := range res.Invoice.Lines {
+		if res.Invoice.Lines[i].MeterCode == TaxLineCode {
+			tax = &res.Invoice.Lines[i]
+		}
+	}
+	if tax == nil {
+		t.Fatal("no tax line in the invoice")
+	}
+	if !tax.Amount.Equal(d("8.25")) {
+		t.Fatalf("tax line = %s, want 8.25", tax.Amount)
+	}
+	// Deterministic: same inputs → same hash; and tax changes the hash.
+	res2, _ := Calculate(sub(plan, periodStart), plan, tokensMeter(), nil, d("8.25"))
+	if res.Hash != res2.Hash {
+		t.Fatal("taxed invoice must be deterministic")
+	}
+	if noTax, _ := Calculate(sub(plan, periodStart), plan, tokensMeter(), nil); noTax.Hash == res.Hash {
+		t.Fatal("a tax line must change the verification hash")
+	}
+}
+
 func TestFlatProratedMidPeriodStart(t *testing.T) {
 	plan := domain.Plan{ID: "plan_1", Version: 1, Prices: []domain.Price{
 		{ID: "p_base", Model: domain.ModelFlat, Currency: "USD", FlatAmount: d("30.00")},

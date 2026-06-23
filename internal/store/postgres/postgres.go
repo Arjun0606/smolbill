@@ -101,9 +101,9 @@ func (s *Store) PutCustomer(c domain.Customer) error {
 		c.CreatedAt = time.Now().UTC()
 	}
 	_, err := s.pool.Exec(s.ctx,
-		`INSERT INTO customers (id, external_id, name, created_at) VALUES ($1,$2,$3,$4)
-		 ON CONFLICT (id) DO UPDATE SET external_id = EXCLUDED.external_id, name = EXCLUDED.name`,
-		c.ID, nullStr(c.ExternalID), c.Name, c.CreatedAt,
+		`INSERT INTO customers (id, external_id, name, tax_rate, created_at) VALUES ($1,$2,$3,$4::numeric,$5)
+		 ON CONFLICT (id) DO UPDATE SET external_id = EXCLUDED.external_id, name = EXCLUDED.name, tax_rate = EXCLUDED.tax_rate`,
+		c.ID, nullStr(c.ExternalID), c.Name, c.TaxRate.String(), c.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: PutCustomer: %w", err)
@@ -113,10 +113,10 @@ func (s *Store) PutCustomer(c domain.Customer) error {
 
 func (s *Store) GetCustomer(cid string) (domain.Customer, bool, error) {
 	var c domain.Customer
-	var ext *string
+	var ext, taxRate *string
 	err := s.pool.QueryRow(s.ctx,
-		`SELECT id, external_id, name, created_at FROM customers WHERE id = $1`, cid,
-	).Scan(&c.ID, &ext, &c.Name, &c.CreatedAt)
+		`SELECT id, external_id, name, tax_rate::text, created_at FROM customers WHERE id = $1`, cid,
+	).Scan(&c.ID, &ext, &c.Name, &taxRate, &c.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.Customer{}, false, nil
 	}
@@ -124,6 +124,7 @@ func (s *Store) GetCustomer(cid string) (domain.Customer, bool, error) {
 		return domain.Customer{}, false, fmt.Errorf("postgres: GetCustomer: %w", err)
 	}
 	c.ExternalID = derefStr(ext)
+	c.TaxRate = parseDec(taxRate)
 	return c, true, nil
 }
 
@@ -844,7 +845,7 @@ func (s *Store) WalletTransactions(customerID string) ([]domain.WalletTransactio
 // --- dashboard reads ---
 
 func (s *Store) ListCustomers() ([]domain.Customer, error) {
-	rows, err := s.pool.Query(s.ctx, `SELECT id, external_id, name, created_at FROM customers ORDER BY created_at DESC`)
+	rows, err := s.pool.Query(s.ctx, `SELECT id, external_id, name, tax_rate::text, created_at FROM customers ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: ListCustomers: %w", err)
 	}
@@ -852,11 +853,12 @@ func (s *Store) ListCustomers() ([]domain.Customer, error) {
 	var out []domain.Customer
 	for rows.Next() {
 		var c domain.Customer
-		var ext *string
-		if err := rows.Scan(&c.ID, &ext, &c.Name, &c.CreatedAt); err != nil {
+		var ext, taxRate *string
+		if err := rows.Scan(&c.ID, &ext, &c.Name, &taxRate, &c.CreatedAt); err != nil {
 			return nil, fmt.Errorf("postgres: scan customer: %w", err)
 		}
 		c.ExternalID = derefStr(ext)
+		c.TaxRate = parseDec(taxRate)
 		out = append(out, c)
 	}
 	return out, rows.Err()

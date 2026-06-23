@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS customers (
     id          TEXT PRIMARY KEY,
     external_id TEXT,
     name        TEXT NOT NULL,
+    tax_rate    NUMERIC NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -128,10 +128,11 @@ func (s *Server) buildTools() []tool {
 		},
 		{
 			name:        "create_customer",
-			description: "Create a customer (the billed entity). Returns the customer id you then attach plans to.",
+			description: "Create a customer (the billed entity). Returns the customer id you then attach plans to. Optionally set a tax_rate (percent) to add a tax line to their invoices.",
 			inputSchema: obj(map[string]any{
 				"name":        str("customer name"),
 				"external_id": str("optional id in your own system"),
+				"tax_rate":    str("optional tax percent applied as an invoice line, e.g. '8.25'"),
 			}, "name"),
 			handler: s.createCustomerTool,
 		},
@@ -344,14 +345,22 @@ func (s *Server) buildTools() []tool {
 // --- additional intent/observe handlers (full-lifecycle MCP surface) ---
 
 func (s *Server) createCustomerTool(_ context.Context, args json.RawMessage) (string, error) {
-	var a struct{ Name, ExternalID string }
-	if err := decodeArgs(args, &a, map[string]*string{"name": &a.Name, "external_id": &a.ExternalID}); err != nil {
+	var a struct{ Name, ExternalID, TaxRate string }
+	if err := decodeArgs(args, &a, map[string]*string{"name": &a.Name, "external_id": &a.ExternalID, "tax_rate": &a.TaxRate}); err != nil {
 		return "", err
 	}
 	if a.Name == "" {
 		return "", fmt.Errorf("name is required")
 	}
-	c := domain.Customer{ID: id.New("cus"), Name: a.Name, ExternalID: a.ExternalID, CreatedAt: s.now()}
+	taxRate := decimal.Zero
+	if a.TaxRate != "" {
+		v, perr := decimal.NewFromString(a.TaxRate)
+		if perr != nil || v.IsNegative() {
+			return "", fmt.Errorf("tax_rate must be a non-negative percent, e.g. 8.25")
+		}
+		taxRate = v
+	}
+	c := domain.Customer{ID: id.New("cus"), Name: a.Name, ExternalID: a.ExternalID, TaxRate: taxRate, CreatedAt: s.now()}
 	if err := s.store.PutCustomer(c); err != nil {
 		return "", err
 	}

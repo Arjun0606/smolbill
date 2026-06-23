@@ -186,6 +186,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 type customerReq struct {
 	ExternalID string `json:"external_id"`
 	Name       string `json:"name"`
+	TaxRate    string `json:"tax_rate"` // optional percent, e.g. "8.25"
 }
 
 func (s *Server) createCustomer(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +199,16 @@ func (s *Server) createCustomer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	c := domain.Customer{ID: id.New("cus"), ExternalID: req.ExternalID, Name: req.Name, CreatedAt: s.now()}
+	taxRate := decimal.Zero
+	if req.TaxRate != "" {
+		v, perr := decimal.NewFromString(req.TaxRate)
+		if perr != nil || v.IsNegative() {
+			writeErr(w, http.StatusBadRequest, "tax_rate must be a non-negative percent, e.g. 8.25")
+			return
+		}
+		taxRate = v
+	}
+	c := domain.Customer{ID: id.New("cus"), ExternalID: req.ExternalID, Name: req.Name, TaxRate: taxRate, CreatedAt: s.now()}
 	if err := s.store.PutCustomer(c); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -230,6 +240,10 @@ func (s *Server) createMeter(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Code == "" {
 		writeErr(w, http.StatusBadRequest, "code is required")
+		return
+	}
+	if req.Code == invoice.TaxLineCode {
+		writeErr(w, http.StatusBadRequest, `"tax" is reserved for the tax line`)
 		return
 	}
 	if agg != domain.AggCount && req.PropertyKey == "" {

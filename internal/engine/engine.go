@@ -59,7 +59,17 @@ func Compute(st store.Store, sub domain.Subscription) (invoice.Result, error) {
 	if err != nil {
 		return invoice.Result{}, err
 	}
-	return invoice.Calculate(sub, plan, meters, events)
+	return invoice.Calculate(sub, plan, meters, events, taxRate(st, sub.CustomerID))
+}
+
+// taxRate returns the customer's configured tax rate (percent), or zero. The same
+// rate is used at finalize and at reconcile, so a tax line is provable like any
+// other — and if the rate changes after finalize, reconcile flags the drift.
+func taxRate(st store.Store, customerID string) decimal.Decimal {
+	if c, ok, err := st.GetCustomer(customerID); err == nil && ok {
+		return c.TaxRate
+	}
+	return decimal.Zero
 }
 
 // ComputeAsOf computes a subscription's invoice from only the events that had
@@ -90,7 +100,7 @@ func ComputeAsOf(st store.Store, sub domain.Subscription, asOf time.Time) (invoi
 			asOfEvents = append(asOfEvents, e)
 		}
 	}
-	return invoice.Calculate(sub, plan, meters, asOfEvents)
+	return invoice.Calculate(sub, plan, meters, asOfEvents, taxRate(st, sub.CustomerID))
 }
 
 // ComputeAsOfForActiveSub time-travels the customer's active subscription's bill
@@ -243,7 +253,7 @@ func SimulatePlanChange(st store.Store, customerID string, proposed PlanInput) (
 	if err != nil {
 		return SimulationResult{}, err
 	}
-	proposedRes, err := invoice.Calculate(sub, proposedPlan, meters, events)
+	proposedRes, err := invoice.Calculate(sub, proposedPlan, meters, events, taxRate(st, customerID))
 	if err != nil {
 		return SimulationResult{}, err
 	}

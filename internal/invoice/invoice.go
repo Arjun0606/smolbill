@@ -43,20 +43,22 @@ type LineTrace struct {
 	Amount          decimal.Decimal
 }
 
-// Calculate computes the invoice for sub over [PeriodStart, PeriodEnd) using the
-// plan's prices and the supplied events and meter definitions.
-//
-//   - meters maps meter_code -> definition.
-//   - events is the full event set; each price filters to its own meter/period.
-//   - Flat prices (MeterCode == "") are prorated by the subscription's active
-//     fraction of the period; usage prices are never prorated.
-//   - Lines are emitted in a stable order (by meter code, then model) so the
-//     hash is reproducible regardless of plan ordering.
+// TaxLineCode is the reserved meter_code for the tax line. A real meter cannot use
+// this code (the API rejects it), so it never collides with usage.
+const TaxLineCode = "tax"
+
+// Calculate computes a subscription's exact invoice for [PeriodStart, PeriodEnd).
+// Flat prices are prorated by the active fraction of the period; usage prices are
+// never prorated. Lines are emitted in a stable order so the hash is reproducible.
+// An optional taxRate (percent, e.g. 8.25) appends a reconcilable tax line over the
+// subtotal — a real line in the deterministic result, so the verification hash and
+// the reconciliation ledger cover it like any other line.
 func Calculate(
 	sub domain.Subscription,
 	plan domain.Plan,
 	meters map[string]domain.Meter,
 	events []domain.Event,
+	taxRate ...decimal.Decimal,
 ) (Result, error) {
 	if plan.ID != sub.PlanID || plan.Version != sub.PlanVersion {
 		return Result{}, fmt.Errorf("invoice: plan %s v%d does not match subscription's plan %s v%d",
@@ -143,9 +145,30 @@ func Calculate(
 		return traces[i].MeterCode+string(traces[i].PriceModel) < traces[j].MeterCode+string(traces[j].PriceModel)
 	})
 
+	// Subtotal over the usage/flat lines (already sorted for a stable hash).
 	total := money.Zero(currency)
 	for _, l := range lines {
 		total = total.Add(money.New(l.Amount, currency))
+	}
+
+	// Tax: a real line over the subtotal, appended last (after the sort) so ordering
+	// stays deterministic. Rounds down with the same under-bill rule as every line.
+	if len(taxRate) > 0 && taxRate[0].IsPositive() {
+		rate := taxRate[0]
+		taxAmt := total.MulFraction(rate.Div(decimal.NewFromInt(100))).RoundDown()
+		lines = append(lines, domain.InvoiceLine{
+			MeterCode: TaxLineCode,
+			Quantity:  rate,
+			UnitPrice: decimal.Zero,
+			Amount:    taxAmt.Decimal(),
+		})
+		traces = append(traces, LineTrace{
+			MeterCode:       TaxLineCode,
+			MeterValue:      rate,
+			ProrationFactor: decimal.NewFromInt(1),
+			Amount:          taxAmt.Decimal(),
+		})
+		total = total.Add(taxAmt)
 	}
 
 	inv := domain.Invoice{

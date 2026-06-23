@@ -40,10 +40,11 @@ const (
 
 // Customer is the billed entity.
 type Customer struct {
-	ID         string    `json:"id"`
-	ExternalID string    `json:"external_id"`
-	Name       string    `json:"name"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string          `json:"id"`
+	ExternalID string          `json:"external_id"`
+	Name       string          `json:"name"`
+	TaxRate    decimal.Decimal `json:"tax_rate"` // percent applied as a tax line, e.g. 8.25; zero = none
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 // Meter defines how raw events aggregate into a billable quantity.
