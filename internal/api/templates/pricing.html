@@ -1,0 +1,42 @@
+{{define "pricing.html"}}<!doctype html><html><head><meta charset="utf-8"><title>smolbill — pricing</title>{{template "styles"}}</head>
+<body><div class="wrap">
+  <h1>smolbill</h1>
+  <p class="sub">The engine is free, forever. You pay only when we run it for you, or when you need the closed Pro features.</p>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Capability</th><th>Open core</th><th>Pro / Cloud</th></tr></thead>
+      <tbody>
+      {{range .Features}}
+        <tr>
+          <td>{{.Name}}{{if .Note}} <span class="mut">— {{.Note}}</span>{{end}}</td>
+          <td>{{if .Open}}<span class="pill ok">included</span>{{else}}<span class="mut">—</span>{{end}}</td>
+          <td>{{if .Open}}<span class="mut">included</span>{{else}}<span class="pill ok">Pro</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Run it yourself</h2>
+  <div class="card">
+    <p style="margin:0 0 6px"><span class="big">$0</span> <span class="mut">/ forever</span></p>
+    <p class="mut" style="margin:0">Self-host the AGPLv3 engine. Single Go binary + Postgres. Every feature in the “Open core” column above — including provable reconciliation — is yours, free.</p>
+  </div>
+
+  <h2>Let us run it (Cloud)</h2>
+  <div class="card">
+    <p style="margin:0 0 6px"><span class="big">flat + usage</span> <span class="mut">· margin-positive, never a % of your revenue</span></p>
+    <p class="mut" style="margin:0 0 14px">Managed Postgres, backups, the dunning cron, dashboards, the hosted MCP endpoint, and the Pro features — we operate it so you don’t run infra.</p>
+    <p style="margin:0"><a class="pill ok" style="padding:8px 16px" href="/checkout">{{.Cloud.CTALabel}} →</a>
+    {{if not .Cloud.Live}}<span class="mut" style="margin-left:10px">Cloud is in early access — join the list and we’ll bring you on.</span>{{end}}</p>
+  </div>
+
+  <h2>Use it in a closed product (commercial license)</h2>
+  <div class="card">
+    <p class="mut" style="margin:0 0 14px">The engine is AGPLv3. If you’re embedding smolbill in a closed-source product or offering it as a service — or your company can’t take AGPL — a commercial license removes the copyleft obligation and includes the Pro features. (Client SDKs are Apache-2.0, so your app integrates freely either way.)</p>
+    <p style="margin:0"><a href="{{.Cloud.CommercialURL}}">Get a commercial license →</a></p>
+  </div>
+
+  <p class="foot">metered by smolbill · the engine that bills you is the product</p>
+</div></body></html>{{end}}

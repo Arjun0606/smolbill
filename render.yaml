@@ -1,0 +1,32 @@
+# Render.com blueprint for smolbill: the engine (Docker) + managed Postgres.
+# Push this repo, "New > Blueprint", point at render.yaml. The Postgres schema
+# self-applies on first connect — no migrate step.
+services:
+  - type: web
+    name: smolbill
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    plan: starter
+    envVars:
+      - key: ADDR
+        value: ":8080"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smolbill-db
+          property: connectionString
+      # Payment rail (uncomment + set in the Render dashboard, don't commit secrets):
+      # - key: SMOLBILL_PROCESSOR        # stripe|dodo|paddle|lemonsqueezy|polar|creem|razorpay|crypto
+      #   sync: false
+      # - key: DODO_PAYMENTS_API_KEY
+      #   sync: false
+      # Upgrade funnel:
+      - key: SMOLBILL_CLOUD_MODE        # "waitlist" (pre-launch) | "live" (flip at the blow-up)
+        value: waitlist
+      - key: SMOLBILL_CLOUD_URL         # waitlist signup, or the Dodo checkout link when live
+        sync: false
+
+databases:
+  - name: smolbill-db
+    plan: basic-256mb
+    postgresMajorVersion: "16"

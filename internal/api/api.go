@@ -127,6 +127,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /dashboard/customers/{customer_id}", s.dashboardCustomer)
 	mux.HandleFunc("GET /dashboard/invoices/{invoice_id}/reconcile", s.dashboardReconcile)
 	mux.HandleFunc("GET /portal/{customer_id}", s.portal)
+
+	// Upgrade funnel: the conversion hub + the buy-button hop. /upgrade aliases
+	// /pricing; /checkout 302s to the current cloud destination (waitlist or buy).
+	mux.HandleFunc("GET /pricing", s.pricing)
+	mux.HandleFunc("GET /upgrade", s.pricing)
+	mux.HandleFunc("GET /checkout", s.checkout)
 	return mux
 }
 

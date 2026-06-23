@@ -25,7 +25,8 @@ import (
 	"github.com/Arjun0606/smolbill/internal/ingest"
 	"github.com/Arjun0606/smolbill/internal/invoice"
 	"github.com/Arjun0606/smolbill/internal/mcp"
-	"github.com/Arjun0606/smolbill/internal/payments/stripe"
+	"github.com/Arjun0606/smolbill/internal/payments"
+	"github.com/Arjun0606/smolbill/internal/payments/providers"
 	"github.com/Arjun0606/smolbill/internal/reconcile"
 	"github.com/Arjun0606/smolbill/internal/store"
 	"github.com/Arjun0606/smolbill/internal/store/memory"
@@ -73,11 +74,14 @@ func usage() {
 	fmt.Println("  smolbill quickstart  seed a real account + serve it — see everything working in 60s")
 	fmt.Println("  smolbill serve       run the HTTP /v1 API")
 	fmt.Println("  smolbill mcp         run the MCP server over stdio (for Claude/Cursor/agents)")
+	fmt.Println("  smolbill mcp --http  run the MCP server over Streamable HTTP on ADDR (remote clients)")
 	fmt.Println("  smolbill demo        run the deterministic pipeline demo (no DB)")
 	fmt.Println()
 	fmt.Println("env:")
-	fmt.Println("  DATABASE_URL   postgres DSN; if unset, uses an in-memory store")
-	fmt.Println("  ADDR           HTTP listen address (default :8080)")
+	fmt.Println("  DATABASE_URL        postgres DSN; if unset, uses an in-memory store")
+	fmt.Println("  ADDR                HTTP listen address (default :8080)")
+	fmt.Println("  SMOLBILL_PROCESSOR  payment rail: stripe|dodo|paddle|lemonsqueezy|polar|creem|razorpay|crypto")
+	fmt.Println("                      (unset = auto-detect from whichever provider creds are set)")
 }
 
 // openStore builds the store from DATABASE_URL (Postgres) or falls back to
@@ -109,35 +113,89 @@ func runServe() error {
 
 	srv := api.New(st, ingest.New(st, 0), nil)
 
-	// Optional payment rail. With STRIPE_SECRET_KEY set, finalize pushes invoices
-	// to Stripe; otherwise finalize is local-only (still writes the ledger).
-	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
-		srv.SetProcessor(stripe.New(key))
-		log.Printf("smolbill: Stripe payment rail enabled")
+	// Optional payment rail, selected from the environment (SMOLBILL_PROCESSOR or
+	// auto-detected from whichever provider's credentials are set). When a rail is
+	// configured, finalize pushes invoices to it; otherwise finalize is local-only
+	// (the ledger is still written, just not pushed).
+	proc, err := selectProcessor()
+	if err != nil {
+		return err
+	}
+	if proc != nil {
+		srv.SetProcessor(proc)
+		log.Printf("smolbill: %s payment rail enabled", proc.Name())
 	} else {
-		log.Printf("smolbill: STRIPE_SECRET_KEY unset — finalize is local-only (no processor push)")
+		log.Printf("smolbill: no payment rail configured — finalize is local-only (no processor push)")
 	}
 
 	log.Printf("smolbill: listening on %s (dedup window %s)", addr, ingest.DefaultDedupWindow)
 	return http.ListenAndServe(addr, srv.Handler())
 }
 
-// runMCP serves the intent-only MCP tool surface over stdio. All logging goes to
-// stderr; stdout carries only JSON-RPC.
+// runMCP serves the intent-only MCP tool surface. Default transport is stdio (for
+// local editors: Claude Code/Desktop, Cursor, Cline, Windsurf, Zed). With
+// `smolbill mcp --http`, it serves the Streamable HTTP transport on ADDR instead,
+// so REMOTE clients (ChatGPT, claude.ai connectors, hosted agents) can connect.
+// All logging goes to stderr; over stdio, stdout carries only JSON-RPC.
 func runMCP() error {
+	httpMode := false
+	for _, a := range os.Args[2:] {
+		if a == "--http" || a == "-http" {
+			httpMode = true
+		}
+	}
+
 	st, closeStore, err := openStore()
 	if err != nil {
 		return err
 	}
 	defer closeStore()
 	srv := mcp.New(st, ingest.New(st, 0), nil)
-	// Same optional rail as the HTTP server: with STRIPE_SECRET_KEY set, the agent
-	// can verify invoices against the processor and run dunning.
-	if key := os.Getenv("STRIPE_SECRET_KEY"); key != "" {
-		srv.SetProcessor(stripe.New(key))
+	// Same optional rail as the HTTP server: when one is configured, the agent can
+	// verify invoices against the processor and run dunning.
+	proc, err := selectProcessor()
+	if err != nil {
+		return err
 	}
+	if proc != nil {
+		srv.SetProcessor(proc)
+	}
+
+	if httpMode {
+		addr := os.Getenv("ADDR")
+		if addr == "" {
+			addr = ":8080"
+		}
+		log.Printf("smolbill: MCP server ready on http://%s/mcp (Streamable HTTP)", addr)
+		return http.ListenAndServe(addr, srv.HTTPHandler())
+	}
+
 	log.Printf("smolbill: MCP server ready on stdio")
 	return srv.Serve(context.Background(), os.Stdin, os.Stdout)
+}
+
+// selectProcessor resolves the payment rail from the environment via the provider
+// registry. Returns (nil, nil) when no rail is configured (finalize stays
+// local-only). Any rail whose collection is managed externally (a Merchant of
+// Record like Dodo/Paddle/Lemon Squeezy/Polar/Creem, or the push-only crypto rail)
+// handles its own dunning, so smolbill's internal dunning should stay off for those.
+func selectProcessor() (payments.Processor, error) {
+	proc, err := providers.Select()
+	if err != nil {
+		return nil, err
+	}
+	switch name := procName(proc); name {
+	case "dodo", "paddle", "lemonsqueezy", "polar", "creem", "crypto":
+		log.Printf("smolbill: %q manages collection externally — keep smolbill dunning disabled for this rail", name)
+	}
+	return proc, nil
+}
+
+func procName(p payments.Processor) string {
+	if p == nil {
+		return ""
+	}
+	return p.Name()
 }
 
 func dec(s string) decimal.Decimal {

@@ -1,0 +1,38 @@
+# Fly.io deploy for smolbill. One static binary, Postgres-only.
+#
+#   fly launch --no-deploy        # create the app (or `fly apps create smolbill`)
+#   fly postgres create           # managed Postgres, then:
+#   fly postgres attach <pg-app>  # sets DATABASE_URL as a secret automatically
+#   fly secrets set SMOLBILL_PROCESSOR=dodo DODO_PAYMENTS_API_KEY=... \
+#                   DODO_WEBHOOK_SECRET=... SMOLBILL_CLOUD_MODE=waitlist \
+#                   SMOLBILL_CLOUD_URL=https://checkout.dodopayments.com/...
+#   fly deploy
+#
+# The Postgres schema self-applies on first connect — no release/migrate step.
+
+app = "smolbill"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ADDR = ":8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
