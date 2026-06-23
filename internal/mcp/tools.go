@@ -213,6 +213,18 @@ func (s *Server) buildTools() []tool {
 			handler:     s.checkEntitlementTool,
 		},
 		{
+			name:        "gate_check",
+			description: "Real-time enforcement: may this customer do this action RIGHT NOW? Returns a hard allow/deny computed live against a metered entitlement (feature + optional quantity) and/or the prepaid wallet (cost). Call before serving a request to block at the limit or at balance=0 — spend caps only warn; this denies.",
+			inputSchema: obj(map[string]any{
+				"customer_id": str("customer id"),
+				"feature":     str("entitlement feature to check (optional)"),
+				"quantity":    str("units requested against the feature limit; default 1"),
+				"cost":        str("monetary cost to check against the prepaid wallet (optional)"),
+				"currency":    str("currency for cost/wallet; default USD"),
+			}, "customer_id"),
+			handler: s.gateCheckTool,
+		},
+		{
 			name:        "list_meters",
 			description: "List all defined meters (code + aggregation).",
 			inputSchema: obj(map[string]any{}),

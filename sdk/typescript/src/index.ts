@@ -426,6 +426,11 @@ export class Smolbill {
   };
 
   health = () => this.request<{ status: string }>("GET", "/healthz");
+
+  // Real-time gate: may this customer do this right now? Hard allow/deny against a
+  // metered entitlement (feature + quantity) and/or the prepaid wallet (cost).
+  gate = (req: { customer_id: string; feature?: string; quantity?: string; cost?: string; currency?: string }) =>
+    this.request<{ allowed: boolean; reason: string }>("POST", "/v1/gate", req);
 }
 
 export default Smolbill;

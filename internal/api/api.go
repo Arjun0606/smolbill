@@ -115,6 +115,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/dunning/preview", s.previewDunningMessage)
 	mux.HandleFunc("POST /v1/entitlements", s.createEntitlement)
 	mux.HandleFunc("GET /v1/entitlements/{customer_id}", s.getEntitlements)
+	mux.HandleFunc("POST /v1/gate", s.gate)
 	mux.HandleFunc("POST /v1/alerts", s.createAlert)
 	mux.HandleFunc("POST /v1/webhooks", s.createWebhook)
 	mux.HandleFunc("GET /v1/webhooks", s.listWebhooks)

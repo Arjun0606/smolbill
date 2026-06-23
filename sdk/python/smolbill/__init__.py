@@ -117,6 +117,14 @@ class Smolbill:
     def health(self) -> Any:
         return self._request("GET", "/healthz")
 
+    def gate(self, customer_id: str, *, feature: str | None = None, quantity: str | None = None,
+             cost: str | None = None, currency: str | None = None) -> Any:
+        """Real-time gate: may this customer act right now? Hard allow/deny against a
+        metered entitlement (feature + quantity) and/or the prepaid wallet (cost)."""
+        body = _clean({"customer_id": customer_id, "feature": feature,
+                       "quantity": quantity, "cost": cost, "currency": currency})
+        return self._request("POST", "/v1/gate", body)
+
 
 def _clean(d: dict[str, Any]) -> dict[str, Any]:
     """Drop None values so optional fields are omitted from the request body."""
