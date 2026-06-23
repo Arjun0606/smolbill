@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"time"
 
 	"github.com/Arjun0606/smolbill/internal/ingest"
@@ -28,8 +29,30 @@ import (
 	"github.com/Arjun0606/smolbill/internal/store"
 )
 
-// protocolVersion is the MCP revision we implement.
-const protocolVersion = "2024-11-05"
+// defaultProtocolVersion is the MCP revision we advertise when a client does not
+// request one. Our tool surface (initialize / tools.list / tools.call / ping) is
+// stable across MCP revisions, so we negotiate by ECHOING the client's requested
+// version when it is one we recognize — this is what lets newer, stricter clients
+// (which reject a mismatched version) connect, instead of being pinned to an old
+// revision. Unknown/absent versions fall back to this default.
+const defaultProtocolVersion = "2025-06-18"
+
+// supportedProtocolVersions are the MCP revisions we will echo back to a client.
+// All are wire-compatible with our handlers; the set just bounds what we'll claim.
+var supportedProtocolVersions = map[string]bool{
+	"2024-11-05": true,
+	"2025-03-26": true,
+	"2025-06-18": true,
+}
+
+// negotiateVersion picks the protocol version to report in the initialize result:
+// the client's requested version if we recognize it, else our default.
+func negotiateVersion(requested string) string {
+	if supportedProtocolVersions[requested] {
+		return requested
+	}
+	return defaultProtocolVersion
+}
 
 // Server serves the MCP tool surface over a single stdio connection.
 type Server struct {
@@ -107,6 +130,53 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	}
 }
 
+// HTTPHandler exposes the same tool surface over the MCP Streamable HTTP transport
+// so REMOTE clients (ChatGPT, claude.ai connectors, hosted agents) can connect —
+// not just local editors over stdio. It is deliberately stateless: each POST
+// carries one JSON-RPC message, and the response is returned synchronously as
+// application/json. We do not open an SSE stream because this server never pushes
+// server-initiated messages; a GET (the stream-open verb) therefore returns 405.
+//
+// Per the spec, a notification (no id) yields 202 Accepted with an empty body. Any
+// Mcp-Session-Id the client sends is echoed back; we keep no server-side session.
+func (s *Server) HTTPHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
+			w.Header().Set("Mcp-Session-Id", sid)
+		}
+		switch r.Method {
+		case http.MethodPost:
+			body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+			if err != nil {
+				writeHTTPError(w, http.StatusBadRequest, codeParse, "read error")
+				return
+			}
+			resp, ok := s.handle(r.Context(), body)
+			if !ok {
+				// Notification: accepted, nothing to return.
+				w.WriteHeader(http.StatusAccepted)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		case http.MethodGet:
+			// We don't support the optional server->client SSE stream.
+			http.Error(w, "method not allowed: this server has no SSE stream", http.StatusMethodNotAllowed)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	return mux
+}
+
+// writeHTTPError emits a JSON-RPC error object with a 200 body — JSON-RPC carries
+// its own error channel, so transport stays 200 while the error rides in the body.
+func writeHTTPError(w http.ResponseWriter, _ int, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{code, msg}})
+}
+
 func writeMessage(bw *bufio.Writer, resp rpcResponse) error {
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -129,8 +199,12 @@ func (s *Server) handle(ctx context.Context, line []byte) (rpcResponse, bool) {
 
 	switch req.Method {
 	case "initialize":
+		var ip struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		_ = json.Unmarshal(req.Params, &ip)
 		return s.reply(req.ID, map[string]any{
-			"protocolVersion": protocolVersion,
+			"protocolVersion": negotiateVersion(ip.ProtocolVersion),
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "smolbill", "version": "0.1.0"},
 		}), true

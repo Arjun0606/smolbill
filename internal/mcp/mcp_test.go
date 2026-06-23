@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -72,13 +74,88 @@ func (s *session) callTool(name string, args map[string]any) (string, bool) {
 
 func TestInitialize(t *testing.T) {
 	s, _ := newSession(t)
-	resp := s.call("initialize", 1, map[string]any{"protocolVersion": protocolVersion})
+	resp := s.call("initialize", 1, map[string]any{"protocolVersion": defaultProtocolVersion})
 	result := resp["result"].(map[string]any)
-	if result["protocolVersion"] != protocolVersion {
+	if result["protocolVersion"] != defaultProtocolVersion {
 		t.Fatalf("protocolVersion = %v", result["protocolVersion"])
 	}
 	if result["serverInfo"].(map[string]any)["name"] != "smolbill" {
 		t.Fatal("serverInfo.name should be smolbill")
+	}
+}
+
+// A client requesting a known protocol version must get that SAME version echoed
+// back (newer/stricter clients reject a mismatch); an unknown/absent version falls
+// back to our default.
+func TestInitializeNegotiatesVersion(t *testing.T) {
+	s, _ := newSession(t)
+
+	for _, v := range []string{"2024-11-05", "2025-03-26", "2025-06-18"} {
+		resp := s.call("initialize", 1, map[string]any{"protocolVersion": v})
+		got := resp["result"].(map[string]any)["protocolVersion"]
+		if got != v {
+			t.Fatalf("requested %q, server echoed %v (want the same)", v, got)
+		}
+	}
+
+	resp := s.call("initialize", 1, map[string]any{"protocolVersion": "1999-01-01"})
+	if got := resp["result"].(map[string]any)["protocolVersion"]; got != defaultProtocolVersion {
+		t.Fatalf("unknown version -> %v, want default %q", got, defaultProtocolVersion)
+	}
+}
+
+// The Streamable HTTP transport must serve the same tool surface as stdio: a POST
+// of a JSON-RPC request returns the JSON-RPC response; a notification returns 202;
+// a GET (SSE open) returns 405 since this server pushes nothing; and an echoed
+// Mcp-Session-Id round-trips.
+func TestHTTPTransport(t *testing.T) {
+	s, _ := newSession(t)
+	ts := httptest.NewServer(s.srv.HTTPHandler())
+	defer ts.Close()
+
+	// tools/list over HTTP returns the same tools as stdio.
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/mcp", strings.NewReader(body))
+	req.Header.Set("Mcp-Session-Id", "sess-123")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("POST status = %d, want 200", resp.StatusCode)
+	}
+	if resp.Header.Get("Mcp-Session-Id") != "sess-123" {
+		t.Fatalf("session id not echoed: %q", resp.Header.Get("Mcp-Session-Id"))
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	tools, ok := decoded["result"].(map[string]any)["tools"].([]any)
+	if !ok || len(tools) == 0 {
+		t.Fatalf("expected a non-empty tool list over HTTP, got %v", decoded["result"])
+	}
+
+	// A notification (no id) is accepted with no body.
+	note := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+	nr, err := http.Post(ts.URL+"/mcp", "application/json", strings.NewReader(note))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nr.Body.Close()
+	if nr.StatusCode != http.StatusAccepted {
+		t.Fatalf("notification status = %d, want 202", nr.StatusCode)
+	}
+
+	// GET has no SSE stream -> 405.
+	gr, err := http.Get(ts.URL + "/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gr.Body.Close()
+	if gr.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET status = %d, want 405", gr.StatusCode)
 	}
 }
 
