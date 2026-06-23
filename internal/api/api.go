@@ -122,6 +122,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/webhooks", s.createWebhook)
 	mux.HandleFunc("GET /v1/webhooks", s.listWebhooks)
 
+	// Read-only list endpoints for an external dashboard.
+	mux.HandleFunc("GET /v1/customers", s.listCustomers)
+	mux.HandleFunc("GET /v1/plans", s.listPlans)
+	mux.HandleFunc("GET /v1/subscriptions", s.listSubscriptions)
+	mux.HandleFunc("GET /v1/invoices", s.listInvoices)
+
 	// Wallet (free, OSS-core — the feature Lago charges ~$1,500/mo for).
 	mux.HandleFunc("POST /v1/wallet/{customer_id}/topup", s.topupWallet)
 	mux.HandleFunc("GET /v1/wallet/{customer_id}", s.getWallet)

@@ -28,6 +28,10 @@
     { "method": "POST", "path": "/v1/webhooks",                    "ts": "webhooks.create",       "py": "webhooks.create" },
     { "method": "GET",  "path": "/v1/webhooks",                    "ts": "webhooks.list",         "py": "webhooks.list" },
     { "method": "POST", "path": "/v1/wallet/{customer_id}/topup",  "ts": "wallet.topup",          "py": "wallet.topup" },
-    { "method": "GET",  "path": "/v1/wallet/{customer_id}",        "ts": "wallet.get",            "py": "wallet.get" }
+    { "method": "GET",  "path": "/v1/wallet/{customer_id}",        "ts": "wallet.get",            "py": "wallet.get" },
+    { "method": "GET",  "path": "/v1/customers",                   "ts": "customers.list",        "py": "customers.list" },
+    { "method": "GET",  "path": "/v1/plans",                       "ts": "plans.list",            "py": "plans.list" },
+    { "method": "GET",  "path": "/v1/subscriptions",               "ts": "subscriptions.list",    "py": "subscriptions.list" },
+    { "method": "GET",  "path": "/v1/invoices",                    "ts": "invoices.list",         "py": "invoices.list" }
   ]
 }

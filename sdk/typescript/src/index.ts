@@ -315,6 +315,7 @@ export class Smolbill {
   customers = {
     create: (req: { name: string; external_id?: string }) =>
       this.request<Customer>("POST", "/v1/customers", req),
+    list: () => this.request<{ customers: Customer[] }>("GET", "/v1/customers"),
   };
 
   meters = {
@@ -324,6 +325,7 @@ export class Smolbill {
 
   plans = {
     create: (req: PlanInput) => this.request<Plan>("POST", "/v1/plans", req),
+    list: () => this.request<{ plans: Plan[] }>("GET", "/v1/plans"),
   };
 
   subscriptions = {
@@ -334,6 +336,7 @@ export class Smolbill {
       period_end: string;
       started_at?: string;
     }) => this.request<Subscription>("POST", "/v1/subscriptions", req),
+    list: () => this.request<{ subscriptions: Subscription[] }>("GET", "/v1/subscriptions"),
   };
 
   events = {
@@ -370,6 +373,7 @@ export class Smolbill {
       this.request<Collection>("POST", `/v1/invoices/${encodeURIComponent(invoiceId)}/collect`),
     collection: (invoiceId: string) =>
       this.request<Collection>("GET", `/v1/invoices/${encodeURIComponent(invoiceId)}/collection`),
+    list: () => this.request<{ invoices: Invoice[] }>("GET", "/v1/invoices"),
   };
 
   dunning = {

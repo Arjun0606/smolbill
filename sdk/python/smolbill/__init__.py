@@ -138,6 +138,9 @@ class _Customers:
     def create(self, *, name: str, external_id: str | None = None) -> Any:
         return self._c._request("POST", "/v1/customers", _clean({"name": name, "external_id": external_id}))
 
+    def list(self) -> Any:
+        return self._c._request("GET", "/v1/customers")
+
 
 class _Meters:
     def __init__(self, c: Smolbill) -> None:
@@ -155,6 +158,9 @@ class _Plans:
     def create(self, *, name: str, prices: list[dict[str, Any]], version: int | None = None) -> Any:
         return self._c._request("POST", "/v1/plans", _clean({"name": name, "prices": prices, "version": version}))
 
+    def list(self) -> Any:
+        return self._c._request("GET", "/v1/plans")
+
 
 class _Subscriptions:
     def __init__(self, c: Smolbill) -> None:
@@ -165,6 +171,9 @@ class _Subscriptions:
         return self._c._request("POST", "/v1/subscriptions", _clean({
             "customer_id": customer_id, "plan_id": plan_id,
             "period_start": period_start, "period_end": period_end, "started_at": started_at}))
+
+    def list(self) -> Any:
+        return self._c._request("GET", "/v1/subscriptions")
 
 
 class _Events:
@@ -222,6 +231,9 @@ class _Invoices:
     def collection(self, invoice_id: str) -> Any:
         """Inspect the dunning/recovery state of an invoice."""
         return self._c._request("GET", f"/v1/invoices/{urllib.parse.quote(invoice_id)}/collection")
+
+    def list(self) -> Any:
+        return self._c._request("GET", "/v1/invoices")
 
 
 class _Entitlements:

@@ -100,4 +100,10 @@ type Store interface {
 
 	ListCustomers() ([]domain.Customer, error)
 	InvoicesForCustomer(customerID string) ([]domain.Invoice, error)
+
+	// ListPlans/ListSubscriptions/ListInvoices return every row, for an external
+	// dashboard to read the full surface. Read-only; no money math.
+	ListPlans() ([]domain.Plan, error)
+	ListSubscriptions() ([]domain.Subscription, error)
+	ListInvoices() ([]domain.Invoice, error)
 }

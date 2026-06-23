@@ -881,6 +881,110 @@ func (s *Store) InvoicesForCustomer(customerID string) ([]domain.Invoice, error)
 	return out, rows.Err()
 }
 
+func (s *Store) ListPlans() ([]domain.Plan, error) {
+	rows, err := s.pool.Query(s.ctx, `SELECT id, name, version, created_at FROM plans ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: ListPlans: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	out := make([]domain.Plan, 0)
+	for rows.Next() {
+		var p domain.Plan
+		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan plan: %w", err)
+		}
+		out = append(out, p)
+		ids = append(ids, p.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Load each plan's prices with the same column/scan logic as GetPlan.
+	for i, pid := range ids {
+		prows, err := s.pool.Query(s.ctx,
+			`SELECT id, meter_code, model, currency, unit_amount::text, flat_amount::text, tiers,
+			        package_size::text, percentage::text, minimum_amount::text, maximum_amount::text
+			 FROM prices WHERE plan_id = $1 ORDER BY id`, pid)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: ListPlans prices: %w", err)
+		}
+		for prows.Next() {
+			var pr domain.Price
+			var meterCode, model, currency *string
+			var unit, flat *string
+			var pkgSize, pct, minAmt, maxAmt *string
+			var tiers []byte
+			if err := prows.Scan(&pr.ID, &meterCode, &model, &currency, &unit, &flat, &tiers,
+				&pkgSize, &pct, &minAmt, &maxAmt); err != nil {
+				prows.Close()
+				return nil, fmt.Errorf("postgres: scan price: %w", err)
+			}
+			pr.PlanID = pid
+			pr.MeterCode = derefStr(meterCode)
+			pr.Model = domain.PriceModel(derefStr(model))
+			pr.Currency = derefStr(currency)
+			pr.UnitAmount = parseDec(unit)
+			pr.FlatAmount = parseDec(flat)
+			pr.PackageSize = parseDec(pkgSize)
+			pr.Percentage = parseDec(pct)
+			pr.MinimumAmount = parseDec(minAmt)
+			pr.MaximumAmount = parseDec(maxAmt)
+			if len(tiers) > 0 {
+				if err := json.Unmarshal(tiers, &pr.Tiers); err != nil {
+					prows.Close()
+					return nil, fmt.Errorf("postgres: unmarshal tiers: %w", err)
+				}
+			}
+			out[i].Prices = append(out[i].Prices, pr)
+		}
+		if err := prows.Err(); err != nil {
+			prows.Close()
+			return nil, err
+		}
+		prows.Close()
+	}
+	return out, nil
+}
+
+func (s *Store) ListSubscriptions() ([]domain.Subscription, error) {
+	rows, err := s.pool.Query(s.ctx, `SELECT `+subCols+` FROM subscriptions ORDER BY started_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: ListSubscriptions: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.Subscription, 0)
+	for rows.Next() {
+		sub, err := s.scanSub(rows)
+		if err != nil {
+			return nil, fmt.Errorf("postgres: scan sub: %w", err)
+		}
+		out = append(out, sub)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListInvoices() ([]domain.Invoice, error) {
+	rows, err := s.pool.Query(s.ctx,
+		`SELECT id, customer_id, subscription_id, period_start, period_end, status, total::text, currency
+		 FROM invoices ORDER BY period_start DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: ListInvoices: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.Invoice, 0)
+	for rows.Next() {
+		var inv domain.Invoice
+		var total *string
+		if err := rows.Scan(&inv.ID, &inv.CustomerID, &inv.SubscriptionID, &inv.PeriodStart, &inv.PeriodEnd, &inv.Status, &total, &inv.Currency); err != nil {
+			return nil, fmt.Errorf("postgres: scan invoice: %w", err)
+		}
+		inv.Total = parseDec(total)
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
 // --- helpers ---
 
 func nullTime(t time.Time) *time.Time {

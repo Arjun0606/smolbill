@@ -397,3 +397,33 @@ func (s *Store) InvoicesForCustomer(customerID string) ([]domain.Invoice, error)
 	}
 	return out, nil
 }
+
+func (s *Store) ListPlans() ([]domain.Plan, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Plan, 0, len(s.plans))
+	for _, p := range s.plans {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (s *Store) ListSubscriptions() ([]domain.Subscription, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Subscription, 0, len(s.subs))
+	for _, sub := range s.subs {
+		out = append(out, sub)
+	}
+	return out, nil
+}
+
+func (s *Store) ListInvoices() ([]domain.Invoice, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Invoice, 0, len(s.invoices))
+	for _, inv := range s.invoices {
+		out = append(out, inv)
+	}
+	return out, nil
+}
